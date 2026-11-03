@@ -1,6 +1,6 @@
 # Session log
 
-Session counter: 2
+Session counter: 3
 
 ## Session 1 (2026-11-03)
 - Repo created and attached: dontdoubtdusty/nutrition-label-generator.
@@ -35,3 +35,21 @@ Session counter: 2
   smoke test. Not tested on a real phone.
 - Next: user tries scanning on a real phone on the deployed page; then the earlier open items
   (real barcode lookup CORS, recipe mode on real USDA data, rounding rules).
+
+## Session 3 (2026-11-03)
+- Trigger: a real recipe (cream scones, 11 lines) failed in recipe mode. Asked for: remove an
+  ingredient, a way out of bad USDA matches, and oz or household serving sizes.
+- Built v0.08: "1 Tablespoon + 2 teaspoons" sums added amounts of the same kind; state words (hot,
+  melted, sifted, packed...) are dropped from the USDA search text only.
+- Built v0.09: remove button per ingredient card; also deletes the line from the text box.
+- Built v0.10: per-card "Search USDA again" box and "Show more matches" (same two USDA datasets).
+- Built v0.11: serving size is amount plus unit (g, oz, USDA household measures on Single food; g and oz on
+  Barcode); label shows e.g. "2 oz (57g)". Recipe gets an optional serving name and a g/oz readout.
+  Label serving grams now rounded (whole from 5 g up). Decisions: Branded Foods not added; household
+  measures fetched in the background on selection (one extra USDA call per selected food).
+- Project instructions changed mid-session: one file is no longer required. Nothing was split yet.
+- No saved-data or label-shape change in any of the four versions.
+- Tested with mocked USDA and Open Food Facts in headless Chrome at 375px and 1280px, light and dark:
+  no console errors, no horizontal overflow. Not tested against live USDA (sandbox cannot reach it) or on a phone.
+- Next: user tries the scone recipe live (portion text such as "cup, packed" for raisins and powdered
+  sugar is the likely weak spot); then the earlier open items (barcode CORS, phone scanning, rounding rules).
