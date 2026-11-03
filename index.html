@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nutrition Label Creator v0.01</title>
+<style>
+  /* Page theme tokens; follows the system light/dark setting */
+  :root {
+    --page-bg: #f3f1ec;
+    --page-fg: #1a1a1a;
+    --page-muted: #5b5b5b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --page-bg: #16171a;
+      --page-fg: #ececec;
+      --page-muted: #a3a3ad;
+    }
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--page-bg);
+    color: var(--page-fg);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    line-height: 1.4;
+  }
+
+  /* Page header with app name and version */
+  header {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    padding: 16px;
+    max-width: 960px;
+    margin: 0 auto;
+  }
+  header h1 { margin: 0; font-size: 1.15rem; font-weight: 700; }
+  header .version { color: var(--page-muted); font-size: 0.85rem; }
+
+  main {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 8px 16px 32px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+  }
+
+  .note { margin: 0; color: var(--page-muted); font-size: 0.85rem; text-align: center; }
+
+  /* The label itself stays black on white in both themes, like the real thing */
+  .label {
+    width: 100%;
+    max-width: 320px;
+    background: #fff;
+    color: #000;
+    border: 1px solid #000;
+    padding: 6px 8px 8px;
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    font-size: 0.95rem;
+    line-height: 1.25;
+  }
+  .label h2 {
+    margin: 0 0 2px;
+    font-size: 2.1rem;
+    font-weight: 900;
+    line-height: 1;
+    letter-spacing: -0.5px;
+  }
+  .label .row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 8px;
+    padding: 2px 0;
+    border-top: 1px solid #000;
+  }
+  .label .row.first { border-top: 0; }
+  .label .row.indent { padding-left: 1.1em; }
+  .label .row.indent2 { padding-left: 2.2em; }
+  .label strong { font-weight: 800; }
+  .label .bar-thick { height: 9px; background: #000; margin: 2px 0; }
+  .label .bar-med { height: 5px; background: #000; margin: 2px 0; }
+  .label .servings { padding: 2px 0 2px; }
+  .label .serving-size { font-weight: 800; font-size: 1.05rem; padding-bottom: 3px; }
+  .label .small-bold { font-size: 0.8rem; font-weight: 800; }
+  .label .calories {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    padding: 0;
+  }
+  .label .calories .name { font-size: 1.6rem; font-weight: 900; line-height: 1.1; }
+  .label .calories .value { font-size: 2.4rem; font-weight: 900; line-height: 1; }
+  .label .dv-head { text-align: right; padding: 2px 0; border-top: 1px solid #000; }
+  .label .footnote {
+    margin: 0;
+    padding-top: 4px;
+    border-top: 1px solid #000;
+    font-size: 0.7rem;
+    line-height: 1.3;
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Nutrition Label Creator</h1>
+  <span class="version">v0.01</span>
+</header>
+<main>
+  <section id="label-mount" aria-label="Nutrition Facts label" style="width:100%;display:flex;justify-content:center;"></section>
+  <p class="note">Sample data only. Ingredient and food lookups arrive in a later version.</p>
+</main>
+
+<script>
+/* ---------- Reference data ---------- */
+
+/* Daily Values for a 2,000 calorie diet (FDA 2016 set), keyed by nutrient */
+const DAILY_VALUES = {
+  totalFat: 78, satFat: 20, cholesterol: 300, sodium: 2300,
+  totalCarbs: 275, fiber: 28, addedSugars: 50,
+  vitaminD: 20, calcium: 1300, iron: 18, potassium: 4700
+};
+
+/* Layout of the label rows, top to bottom. Pure data, no DOM. */
+const ROW_LAYOUT = [
+  { key: 'totalFat',    label: 'Total Fat',          level: 0, bold: true,  dv: true },
+  { key: 'satFat',      label: 'Saturated Fat',      level: 1, bold: false, dv: true },
+  { key: 'transFat',    label: 'Trans Fat',          level: 1, bold: false, dv: false, italicName: true },
+  { key: 'cholesterol', label: 'Cholesterol',        level: 0, bold: true,  dv: true },
+  { key: 'sodium',      label: 'Sodium',             level: 0, bold: true,  dv: true },
+  { key: 'totalCarbs',  label: 'Total Carbohydrate', level: 0, bold: true,  dv: true },
+  { key: 'fiber',       label: 'Dietary Fiber',      level: 1, bold: false, dv: true },
+  { key: 'totalSugars', label: 'Total Sugars',       level: 1, bold: false, dv: false },
+  { key: 'addedSugars', label: 'Added Sugars',       level: 2, bold: false, dv: true, includes: true },
+  { key: 'protein',     label: 'Protein',            level: 0, bold: true,  dv: false }
+];
+
+/* Rows shown under the third thick bar (vitamins and minerals) */
+const MICRO_LAYOUT = [
+  { key: 'vitaminD',  label: 'Vitamin D' },
+  { key: 'calcium',   label: 'Calcium' },
+  { key: 'iron',      label: 'Iron' },
+  { key: 'potassium', label: 'Potassium' }
+];
+
+/* Sample label data. This is the shared data shape that lookups and recipe math
+   will produce later: flat nutrient map of { amount, unit } plus serving info.
+   Any change to this shape must be flagged before it is made. */
+const SAMPLE_LABEL = {
+  servingsPerContainer: 8,
+  servingSize: '2/3 cup',
+  servingGrams: 55,
+  calories: 230,
+  nutrients: {
+    totalFat:    { amount: 8,   unit: 'g'   },
+    satFat:      { amount: 1,   unit: 'g'   },
+    transFat:    { amount: 0,   unit: 'g'   },
+    cholesterol: { amount: 0,   unit: 'mg'  },
+    sodium:      { amount: 160, unit: 'mg'  },
+    totalCarbs:  { amount: 37,  unit: 'g'   },
+    fiber:       { amount: 4,   unit: 'g'   },
+    totalSugars: { amount: 12,  unit: 'g'   },
+    addedSugars: { amount: 10,  unit: 'g'   },
+    protein:     { amount: 3,   unit: 'g'   },
+    vitaminD:    { amount: 2,   unit: 'mcg' },
+    calcium:     { amount: 260, unit: 'mg'  },
+    iron:        { amount: 8,   unit: 'mg'  },
+    potassium:   { amount: 235, unit: 'mg'  }
+  }
+};
+
+/* ---------- Logic (no DOM) ---------- */
+
+/* Formats a number for display: at most one decimal, no trailing ".0" */
+function formatNumber(value) {
+  return String(Math.round(value * 10) / 10);
+}
+
+/* Returns the percent Daily Value as a whole number, or null if there is no DV */
+function percentDV(key, amount) {
+  const dv = DAILY_VALUES[key];
+  if (!dv) return null;
+  return Math.round((amount / dv) * 100);
+}
+
+/* Turns the label data into a flat list of display-ready rows */
+function buildRows(label) {
+  const rows = ROW_LAYOUT.map(def => {
+    const n = label.nutrients[def.key];
+    const amountText = formatNumber(n.amount) + n.unit;
+    const pct = def.dv ? percentDV(def.key, n.amount) : null;
+    return {
+      level: def.level,
+      bold: def.bold,
+      italicName: !!def.italicName,
+      name: def.includes ? 'Includes ' + amountText + ' Added Sugars' : def.label,
+      amountText: def.includes ? '' : amountText,
+      percent: pct
+    };
+  });
+  const micros = MICRO_LAYOUT.map(def => {
+    const n = label.nutrients[def.key];
+    return {
+      name: def.label,
+      amountText: formatNumber(n.amount) + n.unit,
+      percent: percentDV(def.key, n.amount)
+    };
+  });
+  return { rows, micros };
+}
+
+/* ---------- Rendering (DOM only) ---------- */
+
+/* Creates an element with optional class and text */
+function el(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+
+/* Builds one nutrient row: name and amount on the left, percent on the right */
+function renderNutrientRow(row) {
+  let cls = 'row';
+  if (row.level === 1) cls += ' indent';
+  if (row.level === 2) cls += ' indent2';
+  const wrap = el('div', cls);
+
+  const left = el('span');
+  if (row.italicName) {
+    left.append(el('em', null, 'Trans'), el('span', null, ' Fat'));
+  } else {
+    left.append(el(row.bold ? 'strong' : 'span', null, row.name));
+  }
+  if (row.amountText) left.append(el('span', null, ' ' + row.amountText));
+
+  const right = el('strong', null, row.percent === null ? '' : row.percent + '%');
+  wrap.append(left, right);
+  return wrap;
+}
+
+/* Builds the whole label element from the label data */
+function renderLabel(label) {
+  const { rows, micros } = buildRows(label);
+  const root = el('div', 'label');
+
+  root.append(el('h2', null, 'Nutrition Facts'));
+  root.append(el('div', 'servings', label.servingsPerContainer + ' servings per container'));
+
+  const size = el('div', 'row first serving-size');
+  size.append(el('span', null, 'Serving size'),
+              el('span', null, label.servingSize + ' (' + label.servingGrams + 'g)'));
+  root.append(size);
+
+  root.append(el('div', 'bar-thick'));
+  root.append(el('div', 'small-bold', 'Amount per serving'));
+
+  const cal = el('div', 'calories');
+  cal.append(el('span', 'name', 'Calories'), el('span', 'value', String(label.calories)));
+  root.append(cal);
+
+  root.append(el('div', 'bar-med'));
+  root.append(el('div', 'small-bold dv-head', '% Daily Value*'));
+  rows.forEach(row => root.append(renderNutrientRow(row)));
+
+  root.append(el('div', 'bar-thick'));
+  micros.forEach((row, i) => {
+    const wrap = el('div', 'row' + (i === 0 ? ' first' : ''));
+    wrap.append(el('span', null, row.name + ' ' + row.amountText),
+                el('span', null, row.percent + '%'));
+    root.append(wrap);
+  });
+
+  root.append(el('div', 'bar-med'));
+  root.append(el('p', 'footnote',
+    '* The % Daily Value (DV) tells you how much a nutrient in a serving of food ' +
+    'contributes to a daily diet. 2,000 calories a day is used for general nutrition advice.'));
+  return root;
+}
+
+/* ---------- Start ---------- */
+
+/* Draws the sample label into the page */
+document.getElementById('label-mount').append(renderLabel(SAMPLE_LABEL));
+</script>
+</body>
+</html>
