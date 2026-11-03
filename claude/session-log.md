@@ -1,6 +1,6 @@
 # Session log
 
-Session counter: 3
+Session counter: 4
 
 ## Session 1 (2026-11-03)
 - Repo created and attached: dontdoubtdusty/nutrition-label-generator.
@@ -53,3 +53,14 @@ Session counter: 3
   no console errors, no horizontal overflow. Not tested against live USDA (sandbox cannot reach it) or on a phone.
 - Next: user tries the scone recipe live (portion text such as "cup, packed" for raisins and powdered
   sugar is the likely weak spot); then the earlier open items (barcode CORS, phone scanning, rounding rules).
+
+## Session 4 (2026-11-03)
+- Built v0.12: Copy image and Copy text buttons under the label. Decisions: text uses the label's rounded
+  values (not unrounded 2 decimals); every label row in the text; image drawn on a canvas, not a DOM snapshot.
+  Added `servingText(label)` so the label, text and image print the serving size identically.
+- No saved-data or label-shape change.
+- Tested in headless Chrome over HTTP at 375px and 1280px, light and dark: text and PNG on the clipboard,
+  image size matches the on-screen label, download fallback, long serving name wraps, no app console errors
+  (the only 404 was the test server's missing favicon). Not tested on a real phone or in real Safari.
+- Next: user tries both buttons on the deployed page, especially pasting the image on iPhone Safari;
+  then the earlier open items (barcode CORS, phone scanning, recipe mode on real USDA data, rounding rules).

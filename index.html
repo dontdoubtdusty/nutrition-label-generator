@@ -6,7 +6,7 @@
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#ecfb9e" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#232b10" media="(prefers-color-scheme: dark)">
-<title>Nutrition Label Creator v0.11</title>
+<title>Nutrition Label Creator v0.12</title>
 <style>
   /* Page theme tokens; follow the system light/dark setting.
      Light: lime-to-sky gradient page, cream cards, dark pill buttons.
@@ -209,6 +209,10 @@
   }
   .label-col .label { box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18); }
   .label-col .note { color: var(--stage-fg); }
+  /* Copy image and Copy text sit side by side under the label, as wide as the label */
+  .copy-row { display: flex; gap: 10px; width: 100%; max-width: 320px; margin-top: 14px; }
+  .copy-row button { flex: 1 1 0; min-width: 0; padding: 10px 12px; white-space: nowrap; }
+  #copy-status:empty { display: none; }
   .stack { display: flex; flex-direction: column; gap: 12px; }
   .row-inline { display: flex; gap: 10px; align-items: flex-end; }
   /* Serving size: an amount box and a unit dropdown side by side */
@@ -464,7 +468,7 @@
     <span class="pill pill-lilac">Label</span>
     <span class="pill pill-peach">Creator</span>
   </h1>
-  <p class="tagline"><span class="chip version">v0.11</span> Look up a food, get the label.</p>
+  <p class="tagline"><span class="chip version">v0.12</span> Look up a food, get the label.</p>
 </header>
 <main>
   <div class="layout">
@@ -592,6 +596,17 @@
 
     <div class="label-col">
       <section id="label-mount" aria-label="Nutrition Facts label" style="width:100%;display:flex;justify-content:center;"></section>
+      <div class="copy-row">
+        <button type="button" class="primary" id="copy-image-btn">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="9" cy="10" r="1.6"/><path d="M21 16l-5-5-8 8"/></svg>
+          Copy image
+        </button>
+        <button type="button" class="primary" id="copy-text-btn">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="3" width="14" height="18" rx="3"/><path d="M9 8h6M9 12h6M9 16h4"/></svg>
+          Copy text
+        </button>
+      </div>
+      <p class="note" id="copy-status" aria-live="polite"></p>
       <p class="note" id="source-note"></p>
     </div>
   </div>
@@ -798,9 +813,7 @@ function renderLabel(label) {
       ? ' serving per container' : ' servings per container')));
   }
 
-  /* An empty servingSize means there is no household measure, so show grams only */
-  const gramsText = formatServingGrams(label.servingGrams) + 'g';
-  const sizeText = label.servingSize ? label.servingSize + ' (' + gramsText + ')' : gramsText;
+  const sizeText = servingText(label);
   const size = el('div', 'row first serving-size');
   size.append(el('span', null, 'Serving size'), el('span', null, sizeText));
   root.append(size);
@@ -830,6 +843,220 @@ function renderLabel(label) {
     '* The % Daily Value (DV) tells you how much a nutrient in a serving of food ' +
     'contributes to a daily diet. 2,000 calories a day is used for general nutrition advice.'));
   return root;
+}
+
+/* ---------- Label export: text and image ---------- */
+
+/* Names and order for the copied text. The first five follow the order the person asked for;
+   the rest follow the label from top to bottom. */
+const TEXT_ROWS = [
+  { key: 'totalCarbs',  name: 'Carbohydrates' },
+  { key: 'protein',     name: 'Protein' },
+  { key: 'totalFat',    name: 'Fat' },
+  { key: 'sodium',      name: 'Sodium' },
+  { key: 'fiber',       name: 'Fiber' },
+  { key: 'satFat',      name: 'Saturated Fat' },
+  { key: 'transFat',    name: 'Trans Fat' },
+  { key: 'cholesterol', name: 'Cholesterol' },
+  { key: 'totalSugars', name: 'Total Sugars' },
+  { key: 'addedSugars', name: 'Added Sugars' },
+  { key: 'vitaminD',    name: 'Vitamin D' },
+  { key: 'calcium',     name: 'Calcium' },
+  { key: 'iron',        name: 'Iron' },
+  { key: 'potassium',   name: 'Potassium' }
+];
+
+/* Puts a space between a rounded number and its unit: "61g" becomes "61 g" */
+function spaceUnit(text) {
+  return text.replace(/(\d)(g|mg|mcg)$/, '$1 $2');
+}
+
+/* Builds the plain-text copy of a label: a name line, then its value line, for every item.
+   Values are the same rounded ones the label prints; no data shows as a dash. */
+function buildLabelText(label) {
+  const lines = [
+    'Calories', label.calories === null ? NO_DATA : String(roundCalories(label.calories)),
+    'Serving Size', servingText(label)
+  ];
+  TEXT_ROWS.forEach(row => {
+    const n = label.nutrients[row.key];
+    lines.push(row.name, n.amount === null ? NO_DATA : spaceUnit(roundNutrient(row.key, n.amount, n.unit)));
+  });
+  return lines.join('\n');
+}
+
+/* Draws the label onto a canvas from the label data and returns it. It repeats the on-screen
+   layout by hand (sizes below are the label's CSS pixels), then is scaled up 3x so it stays sharp.
+   Canvas has no layout engine, so this keeps its own running y position. */
+function drawLabelCanvas(label) {
+  const SCALE = 3, W = 320, PAD = 9, MAX_H = 900;
+  const FONT = '"Helvetica Neue", Helvetica, Arial, sans-serif';
+  const L = PAD, R = W - PAD, BASE = 15.2, LH = BASE * 1.25;
+  const { rows, micros } = buildRows(label);
+
+  const tall = document.createElement('canvas');
+  tall.width = W * SCALE;
+  tall.height = MAX_H * SCALE;
+  const ctx = tall.getContext('2d');
+  ctx.scale(SCALE, SCALE);
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, W, MAX_H);
+  ctx.fillStyle = '#000';
+  ctx.textBaseline = 'alphabetic';
+  let y = 1 + 6;
+
+  /* Draws one piece of text inside a line box of height lh whose top is at "top";
+     returns its width so the next piece can follow it */
+  const text = (str, x, top, size, weight, lh, align, italic) => {
+    ctx.font = (italic ? 'italic ' : '') + weight + ' ' + size + 'px ' + FONT;
+    ctx.textAlign = align || 'left';
+    ctx.fillText(str, x, top + (lh - size * 1.117) / 2 + size * 0.905);
+    return ctx.measureText(str).width;
+  };
+  /* Splits a string into lines no wider than maxWidth, in the current font */
+  const wrap = (str, maxWidth) => {
+    const out = [];
+    let cur = '';
+    str.split(' ').forEach(word => {
+      const next = cur ? cur + ' ' + word : word;
+      if (cur && ctx.measureText(next).width > maxWidth) { out.push(cur); cur = word; } else { cur = next; }
+    });
+    out.push(cur);
+    return out;
+  };
+  /* A horizontal bar with 2px margin above and below, like the label's thick and medium bars */
+  const bar = h => { ctx.fillRect(L, y + 2, R - L, h); y += h + 4; };
+  /* A row with a 1px rule above (unless first), 2px padding, left runs and an optional right value */
+  const row = (first, indent, runs, rightStr, rightWeight) => {
+    if (!first) ctx.fillRect(L, y, R - L, 1);
+    const top = y + (first ? 0 : 1) + 2;
+    let x = L + indent;
+    runs.forEach(r => { x += text(r[0], x, top, BASE, r[1], LH, 'left', r[2]); });
+    if (rightStr) text(rightStr, R, top, BASE, rightWeight, LH, 'right');
+    y += (first ? 0 : 1) + 2 + LH + 2;
+  };
+
+  text('Nutrition Facts', L, y, 33.6, 900, 33.6, 'left');
+  y += 33.6 + 2;
+
+  if (label.servingsPerContainer) {
+    const n = label.servingsPerContainer;
+    text(n + (n === 1 ? ' serving per container' : ' servings per container'), L, y + 2, BASE, 400, LH, 'left');
+    y += 2 + LH + 2;
+  }
+
+  /* Serving size row: the amount wraps onto more lines if it is long */
+  const SIZE = 16.8, SIZE_LH = SIZE * 1.25;
+  ctx.font = '800 ' + SIZE + 'px ' + FONT;
+  const leftW = ctx.measureText('Serving size').width;
+  const sizeLines = wrap(servingText(label), R - L - leftW - 8);
+  text('Serving size', L, y + 2, SIZE, 800, SIZE_LH, 'left');
+  sizeLines.forEach((s, i) => text(s, R, y + 2 + i * SIZE_LH, SIZE, 800, SIZE_LH, 'right'));
+  y += 2 + sizeLines.length * SIZE_LH + 3;
+
+  bar(9);
+  text('Amount per serving', L, y, 12.8, 800, 12.8 * 1.25, 'left');
+  y += 12.8 * 1.25;
+
+  /* Calories: name and number share a bottom edge */
+  const CAL_H = 38.4, NAME_H = 25.6 * 1.1;
+  text('Calories', L, y + CAL_H - NAME_H, 25.6, 900, NAME_H, 'left');
+  text(label.calories === null ? NO_DATA : String(roundCalories(label.calories)), R, y, 38.4, 900, CAL_H, 'right');
+  y += CAL_H;
+
+  bar(5);
+  ctx.fillRect(L, y, R - L, 1);
+  text('% Daily Value*', R, y + 1 + 2, 12.8, 800, 12.8 * 1.25, 'right');
+  y += 1 + 2 + 12.8 * 1.25 + 2;
+
+  rows.forEach(r => {
+    const runs = r.italicName
+      ? [['Trans', 400, true], [' Fat', 400]]
+      : [[r.name, r.bold ? 800 : 400]];
+    if (r.amountText) runs.push([' ' + r.amountText, 400]);
+    row(false, r.level === 1 ? BASE * 1.1 : (r.level === 2 ? BASE * 2.2 : 0), runs,
+        r.percent === null ? '' : r.percent + '%', 800);
+  });
+
+  bar(9);
+  micros.forEach((m, i) => {
+    row(i === 0, 0, [[m.name + ' ' + m.amountText, 400]], m.percent === null ? '' : m.percent + '%', 400);
+  });
+
+  bar(5);
+  const NOTE = 11.2, NOTE_LH = NOTE * 1.3;
+  ctx.fillRect(L, y, R - L, 1);
+  ctx.font = '400 ' + NOTE + 'px ' + FONT;
+  const note = wrap('* The % Daily Value (DV) tells you how much a nutrient in a serving of food ' +
+    'contributes to a daily diet. 2,000 calories a day is used for general nutrition advice.', R - L);
+  note.forEach((s, i) => text(s, L, y + 1 + 4 + i * NOTE_LH, NOTE, 400, NOTE_LH, 'left'));
+  y += 1 + 4 + note.length * NOTE_LH;
+
+  /* Bottom padding, then the 1px black outline around everything */
+  const H = Math.ceil(y + 8 + 1);
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = '#000';
+  ctx.strokeRect(0.5, 0.5, W - 1, H - 1);
+
+  /* Crop the tall working canvas down to the label's real height */
+  const out = document.createElement('canvas');
+  out.width = W * SCALE;
+  out.height = H * SCALE;
+  out.getContext('2d').drawImage(tall, 0, 0, out.width, out.height, 0, 0, out.width, out.height);
+  return out;
+}
+
+/* Turns a canvas into a PNG file (as a promise) */
+function canvasToBlob(canvas) {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('PNG failed')), 'image/png');
+  });
+}
+
+/* Saves a file to the person's downloads */
+function downloadBlob(blob, name) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = name;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/* Puts the label image on the clipboard. Where the browser blocks image copying (older browsers,
+   or a page that is not secure), saves a PNG instead. Returns 'copied' or 'downloaded'. */
+async function copyLabelImage(label) {
+  const blobPromise = canvasToBlob(drawLabelCanvas(label));
+  if (navigator.clipboard && navigator.clipboard.write && window.ClipboardItem) {
+    try {
+      /* The promise goes in directly: Safari only allows the copy if it starts inside the click */
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': blobPromise })]);
+      return 'copied';
+    } catch (e) { /* blocked or unsupported: fall through to the download */ }
+  }
+  downloadBlob(await blobPromise, 'nutrition-label.png');
+  return 'downloaded';
+}
+
+/* Puts text on the clipboard, with an older fallback for pages where the modern call is blocked.
+   Returns true when it worked. */
+async function copyText(str) {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    try { await navigator.clipboard.writeText(str); return true; } catch (e) { /* try the fallback */ }
+  }
+  const area = document.createElement('textarea');
+  area.value = str;
+  area.setAttribute('readonly', '');
+  area.style.cssText = 'position:fixed;top:0;left:0;opacity:0;';
+  document.body.append(area);
+  area.select();
+  area.setSelectionRange(0, str.length);
+  let ok = false;
+  try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+  area.remove();
+  return ok;
 }
 
 /* ---------- USDA lookup (no DOM) ---------- */
@@ -1265,6 +1492,13 @@ function formatServingGrams(grams) {
   return grams >= 5 ? String(Math.round(grams)) : String(Math.round(grams * 10) / 10);
 }
 
+/* The serving size as the label prints it, such as "1/2 cup (120g)". An empty servingSize
+   means there is no household measure, so only the grams are shown. */
+function servingText(label) {
+  const gramsText = formatServingGrams(label.servingGrams) + 'g';
+  return label.servingSize ? label.servingSize + ' (' + gramsText + ')' : gramsText;
+}
+
 /* ---------- Open Food Facts lookup (no DOM) ---------- */
 
 const OFF_PRODUCT_URL = 'https://world.openfoodfacts.org/api/v2/product';
@@ -1489,6 +1723,9 @@ const ui = {
   results: document.getElementById('results'),
   labelMount: document.getElementById('label-mount'),
   sourceNote: document.getElementById('source-note'),
+  copyImageBtn: document.getElementById('copy-image-btn'),
+  copyTextBtn: document.getElementById('copy-text-btn'),
+  copyStatus: document.getElementById('copy-status'),
   tabSingle: document.getElementById('tab-single'),
   tabRecipe: document.getElementById('tab-recipe'),
   tabBarcode: document.getElementById('tab-barcode'),
@@ -1524,6 +1761,9 @@ function setStatus(node, text, isError) {
   node.className = 'status' + (isError ? ' error' : '');
 }
 
+/* The label data currently on screen; the copy buttons export this, not the page */
+let shownLabel = SAMPLE_LABEL;
+
 /* Redraws the label and its source note for the active mode */
 function drawLabel() {
   let label = state.label;
@@ -1535,9 +1775,35 @@ function drawLabel() {
     label = barcode.label || SAMPLE_LABEL;
     note = barcode.label ? barcode.sourceText : 'Sample data. Scan or enter a barcode to replace it.';
   }
+  shownLabel = label;
   ui.labelMount.replaceChildren(renderLabel(label));
   ui.sourceNote.textContent = note;
 }
+
+/* Shows a short message under the copy buttons, then clears it after a few seconds */
+let copyStatusTimer = null;
+function showCopyStatus(text, isError) {
+  ui.copyStatus.textContent = text;
+  ui.copyStatus.style.color = isError ? 'var(--error)' : '';
+  clearTimeout(copyStatusTimer);
+  copyStatusTimer = setTimeout(() => { ui.copyStatus.textContent = ''; }, 3500);
+}
+
+/* Copy image: puts a PNG of the label on the clipboard, or saves it if copying is blocked */
+ui.copyImageBtn.addEventListener('click', async () => {
+  try {
+    const result = await copyLabelImage(shownLabel);
+    showCopyStatus(result === 'copied' ? 'Label image copied.' : 'Image copying is blocked here, so the label was saved as a PNG.');
+  } catch (e) {
+    showCopyStatus('Could not make the image.', true);
+  }
+});
+
+/* Copy text: puts the label's values on the clipboard, one name and one value per line */
+ui.copyTextBtn.addEventListener('click', async () => {
+  const ok = await copyText(buildLabelText(shownLabel));
+  showCopyStatus(ok ? 'Label text copied.' : 'Copying is blocked here. Try again from the hosted page.', !ok);
+});
 
 /* Switches between the single-food, recipe and barcode panels */
 function setMode(mode) {

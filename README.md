@@ -76,6 +76,13 @@ GitHub Pages, served straight from `main`.
   up. On the Recipe tab an optional serving name gives `1 scone (95g)` instead of `1 serving (95g)`,
   and the note under the label gives each serving's weight in grams and ounces.
 
+- v0.12: Copy image and Copy text buttons under the label. Copy image puts a PNG of the label on the
+  clipboard (drawn from the label data, so it works in Safari too); where the browser blocks image
+  copying it saves the PNG as a download instead. Copy text puts every value on the clipboard, one name
+  line and one value line each (Calories, Serving Size, Carbohydrates, Protein, Fat, Sodium, Fiber, then
+  the rest of the label rows). Values are the same rounded ones the label prints; missing data is a
+  dash. No saved data or label shape change.
+
 ## Not for regulatory use
 This is a hobby tool. USDA averages and a simplified rounding table are not a substitute
 for lab analysis or a compliant label. Some rounding rules were taken from a secondary

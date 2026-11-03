@@ -92,6 +92,22 @@ recreation of the standard FDA Nutrition Facts label.
 - Errors (blocked, no camera, busy, no HTTPS) show a short message pointing to Photo or typing.
 - Nothing is saved; no change to the label data shape.
 
+## Label export (v0.12)
+- Two buttons under the label: Copy image and Copy text. Both export the label data currently shown
+  (`shownLabel`), never the page, so they always match the label.
+- Text: one name line then one value line. Order is Calories, Serving Size, Carbohydrates, Protein, Fat,
+  Sodium, Fiber, then Saturated Fat, Trans Fat, Cholesterol, Total Sugars, Added Sugars, Vitamin D, Calcium,
+  Iron, Potassium. Values are the label's FDA-rounded values with a space before the unit ("61 g");
+  unrounded numbers were rejected as false precision that would disagree with the label. Missing data is a
+  dash. No percent Daily Values and no servings-per-container line.
+- Image: drawn on a canvas from the label data (not a DOM snapshot, which is unreliable in Safari), 960 px
+  wide (3x), cropped to the label. The canvas layout repeats the CSS layout by hand: if the label's CSS
+  sizes change, `drawLabelCanvas` must change with it.
+- Clipboard: image copy passes a promise to ClipboardItem (Safari requires the copy to start inside the
+  click). If image copying is unavailable or blocked, a PNG is downloaded instead. Text copy falls back to
+  a hidden textarea and execCommand.
+- Nothing is saved; no change to the label data shape.
+
 ## Saved data
 - `nlc.usdaKey` in localStorage: the user's USDA API key (string). Nothing else is saved.
 
