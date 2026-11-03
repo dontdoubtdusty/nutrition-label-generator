@@ -6,7 +6,7 @@
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#ecfb9e" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#232b10" media="(prefers-color-scheme: dark)">
-<title>Nutrition Label Creator v0.09</title>
+<title>Nutrition Label Creator v0.10</title>
 <style>
   /* Page theme tokens; follow the system light/dark setting.
      Light: lime-to-sky gradient page, cream cards, dark pill buttons.
@@ -460,7 +460,7 @@
     <span class="pill pill-lilac">Label</span>
     <span class="pill pill-peach">Creator</span>
   </h1>
-  <p class="tagline"><span class="chip version">v0.09</span> Look up a food, get the label.</p>
+  <p class="tagline"><span class="chip version">v0.10</span> Look up a food, get the label.</p>
 </header>
 <main>
   <div class="layout">
@@ -881,13 +881,17 @@ function extractPer100g(foodNutrients) {
   return result;
 }
 
-/* Searches USDA generic foods and returns a simple list of matches */
-async function searchFoods(query, apiKey) {
+/* Number of matches asked for per page; a full page means there may be more */
+const SEARCH_PAGE_SIZE = 15;
+
+/* Searches USDA generic foods and returns a simple list of matches (page is 1-based) */
+async function searchFoods(query, apiKey, page) {
   const params = new URLSearchParams({
     api_key: apiKey,
     query: query,
     dataType: 'Foundation,SR Legacy',
-    pageSize: '15'
+    pageSize: String(SEARCH_PAGE_SIZE),
+    pageNumber: String(page || 1)
   });
   const res = await fetch(USDA_SEARCH_URL + '?' + params.toString());
   if (!res.ok) {
@@ -1299,8 +1303,38 @@ const recipe = { servings: 1, lines: [], nextId: 1, label: null, sourceText: '',
 function makeLine(raw) {
   return {
     id: recipe.nextId++, raw: raw, parsed: parseIngredientLine(raw),
-    candidates: [], selected: 0, gramsOverride: null, grams: null, note: '', error: ''
+    candidates: [], selected: 0, gramsOverride: null, grams: null, note: '', error: '',
+    query: '', page: 1, hasMore: false, searchMsg: ''
   };
+}
+
+/* Replaces a line's matches with the results of a new search text (kept as-is if nothing is found).
+   Throws only for fatal errors; "nothing found" is written to searchMsg. */
+async function researchLine(line, query) {
+  line.searchMsg = '';
+  const results = await searchFoods(query, state.apiKey, 1);
+  if (!results.length) {
+    line.searchMsg = 'No matches for "' + query + '". Keeping the earlier matches.';
+    return;
+  }
+  line.candidates = results;
+  line.selected = 0;
+  line.query = query;
+  line.page = 1;
+  line.hasMore = results.length >= SEARCH_PAGE_SIZE;
+  await resolveLine(line);
+}
+
+/* Adds the next page of matches for a line's current search text; the chosen match stays chosen */
+async function moreForLine(line) {
+  line.searchMsg = '';
+  const results = await searchFoods(line.query, state.apiKey, line.page + 1);
+  line.page += 1;
+  line.hasMore = results.length >= SEARCH_PAGE_SIZE;
+  const known = new Set(line.candidates.map(f => f.fdcId));
+  const fresh = results.filter(f => !known.has(f.fdcId));
+  line.candidates = line.candidates.concat(fresh);
+  if (!fresh.length) line.searchMsg = 'No more matches for "' + line.query + '".';
 }
 
 /* Works out one line's grams from the chosen USDA match (fetching portions if needed).
@@ -1536,21 +1570,59 @@ function renderLineCard(line) {
   head.append(el('span', 'raw', line.raw), remove);
   item.append(head);
 
-  if (line.candidates.length) {
-    const matchLabel = el('label', 'field', 'USDA match');
-    const select = el('select');
-    line.candidates.forEach((food, i) => {
-      const option = el('option', null, food.description + ' (' + food.dataType + ')');
-      option.value = String(i);
-      select.append(option);
-    });
-    select.value = String(line.selected);
-    select.addEventListener('change', () => {
-      line.selected = Number(select.value);
-      reresolveLine(line);
-    });
-    matchLabel.append(select);
+  /* Lines that were understood always get a way to search again, even with zero matches */
+  if (!line.parsed.error) {
+    if (line.candidates.length) {
+      const matchLabel = el('label', 'field', 'USDA match');
+      const select = el('select');
+      line.candidates.forEach((food, i) => {
+        const option = el('option', null, food.description + ' (' + food.dataType + ')');
+        option.value = String(i);
+        select.append(option);
+      });
+      select.value = String(line.selected);
+      select.addEventListener('change', () => {
+        line.selected = Number(select.value);
+        reresolveLine(line);
+      });
+      matchLabel.append(select);
+      item.append(matchLabel);
 
+      if (line.hasMore) {
+        const more = el('button', 'tint', 'Show more matches');
+        more.type = 'button';
+        more.addEventListener('click', () => {
+          more.disabled = true;
+          runLineAction(() => moreForLine(line));
+        });
+        item.append(more);
+      }
+    }
+
+    const searchForm = el('form', 'row-inline');
+    const searchLabel = el('label', 'field', 'Search USDA again');
+    searchLabel.style.flex = '1';
+    const searchBox = el('input');
+    searchBox.type = 'text';
+    searchBox.value = line.query;
+    searchBox.spellcheck = false;
+    searchBox.placeholder = 'e.g. wheat flour';
+    searchLabel.append(searchBox);
+    const searchBtn = el('button', 'tint', 'Search');
+    searchBtn.type = 'submit';
+    searchForm.addEventListener('submit', event => {
+      event.preventDefault();
+      const query = searchBox.value.trim();
+      if (!query) return;
+      searchBtn.disabled = true;
+      runLineAction(() => researchLine(line, query));
+    });
+    searchForm.append(searchLabel, searchBtn);
+    item.append(searchForm);
+    if (line.searchMsg) item.append(el('p', 'status', line.searchMsg));
+  }
+
+  if (line.candidates.length) {
     const gramsLabel = el('label', 'field', 'Grams');
     const gramsBox = el('input');
     gramsBox.type = 'number';
@@ -1564,7 +1636,7 @@ function renderLineCard(line) {
       reresolveLine(line);
     });
     gramsLabel.append(gramsBox);
-    item.append(matchLabel, gramsLabel);
+    item.append(gramsLabel);
   }
 
   const message = line.error || line.note;
@@ -1601,6 +1673,19 @@ async function reresolveLine(line) {
   refreshRecipe();
 }
 
+/* Runs a card action that changes a line's matches (search again, show more), then refreshes.
+   A fatal lookup error (bad key, rate limit, offline) is shown in the recipe status line. */
+async function runLineAction(action) {
+  try {
+    await action();
+  } catch (err) {
+    setStatus(ui.recipeStatus, describeError(err), true);
+    drawLines();
+    return;
+  }
+  refreshRecipe();
+}
+
 /* Looks up every ingredient line when the recipe form is submitted */
 ui.recipeForm.addEventListener('submit', async event => {
   event.preventDefault();
@@ -1626,7 +1711,11 @@ ui.recipeForm.addEventListener('submit', async event => {
     for (let i = 0; i < rawLines.length; i++) {
       setStatus(ui.recipeStatus, 'Looking up ' + (i + 1) + ' of ' + rawLines.length + '...', false);
       const line = makeLine(rawLines[i]);
-      if (!line.parsed.error) line.candidates = await searchFoods(line.parsed.name, state.apiKey);
+      if (!line.parsed.error) {
+        line.query = line.parsed.name;
+        line.candidates = await searchFoods(line.query, state.apiKey, 1);
+        line.hasMore = line.candidates.length >= SEARCH_PAGE_SIZE;
+      }
       await resolveLine(line);
       recipe.lines.push(line);
     }

@@ -63,6 +63,11 @@ GitHub Pages, served straight from `main`.
   the label and also deletes its line from the ingredients box, so pressing Calculate again does not
   bring it back. Works on lines that could not be read, too.
 
+- v0.10: Get unstuck on a bad USDA match. Each recipe review card now has a "Search USDA again" box
+  (type your own words, such as `wheat flour`) and a "Show more matches" button that adds the next
+  page of results. A search with no results keeps the earlier matches. Lines with no match at all
+  get the search box too. Still limited to USDA Foundation and SR Legacy foods.
+
 ## Not for regulatory use
 This is a hobby tool. USDA averages and a simplified rounding table are not a substitute
 for lab analysis or a compliant label. Some rounding rules were taken from a secondary
