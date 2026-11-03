@@ -68,6 +68,14 @@ GitHub Pages, served straight from `main`.
   page of results. A search with no results keeps the earlier matches. Lines with no match at all
   get the search box too. Still limited to USDA Foundation and SR Legacy foods.
 
+- v0.11: Serving size units. On the Single food and Barcode tabs the serving size is now an amount box
+  plus a unit dropdown: grams, ounces, and (Single food only) the food's own household measures from
+  USDA, such as cup, tbsp or slice. The label prints it the FDA way, with grams alongside: `2 oz (57g)`,
+  `1/2 cup (120g)`. Switching unit keeps the same weight; switching foods keeps a chosen measure and
+  amount when the new food has it. Serving weights on the label are now rounded to whole grams from 5 g
+  up. On the Recipe tab an optional serving name gives `1 scone (95g)` instead of `1 serving (95g)`,
+  and the note under the label gives each serving's weight in grams and ounces.
+
 ## Not for regulatory use
 This is a hobby tool. USDA averages and a simplified rounding table are not a substitute
 for lab analysis or a compliant label. Some rounding rules were taken from a secondary

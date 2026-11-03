@@ -6,7 +6,7 @@
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#ecfb9e" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#232b10" media="(prefers-color-scheme: dark)">
-<title>Nutrition Label Creator v0.10</title>
+<title>Nutrition Label Creator v0.11</title>
 <style>
   /* Page theme tokens; follow the system light/dark setting.
      Light: lime-to-sky gradient page, cream cards, dark pill buttons.
@@ -211,6 +211,10 @@
   .label-col .note { color: var(--stage-fg); }
   .stack { display: flex; flex-direction: column; gap: 12px; }
   .row-inline { display: flex; gap: 10px; align-items: flex-end; }
+  /* Serving size: an amount box and a unit dropdown side by side */
+  .serving-row { display: flex; gap: 10px; }
+  .serving-row input { flex: 1 1 0; }
+  .serving-row select { flex: 1.6 1 0; }
 
   /* Cards, form fields and buttons */
   .card {
@@ -460,7 +464,7 @@
     <span class="pill pill-lilac">Label</span>
     <span class="pill pill-peach">Creator</span>
   </h1>
-  <p class="tagline"><span class="chip version">v0.10</span> Look up a food, get the label.</p>
+  <p class="tagline"><span class="chip version">v0.11</span> Look up a food, get the label.</p>
 </header>
 <main>
   <div class="layout">
@@ -503,14 +507,16 @@
           <label class="field">Food
             <input id="query-input" type="text" placeholder="cheddar cheese" autocomplete="off" required>
           </label>
-          <div class="row-inline">
-            <label class="field" style="flex:1">Serving size (grams)
-              <input id="grams-input" type="number" min="1" max="2000" step="1" value="100">
-            </label>
-            <button type="submit" class="primary">Search
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
-            </button>
+          <div class="field" role="group" aria-label="Serving size">
+            <span>Serving size</span>
+            <div class="serving-row">
+              <input id="amount-input" type="number" min="0" step="any" value="100" aria-label="Serving amount">
+              <select id="unit-select" aria-label="Serving unit"></select>
+            </div>
           </div>
+          <button type="submit" class="primary">Search
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+          </button>
         </form>
 
         <p class="status" id="search-status" aria-live="polite"></p>
@@ -521,6 +527,9 @@
         <form id="recipe-form" class="card stack">
           <label class="field">Ingredients, one per line
             <textarea id="recipe-input" spellcheck="false" placeholder="200 g cheddar cheese&#10;1 1/2 cups flour&#10;2 large eggs&#10;2 tbsp butter"></textarea>
+          </label>
+          <label class="field">Serving name (optional)
+            <input id="serving-name-input" type="text" maxlength="30" autocomplete="off" placeholder="scone, slice, cookie">
           </label>
           <div class="row-inline">
             <label class="field" style="flex:1">Servings in the recipe
@@ -555,14 +564,16 @@
           <label class="field">Or type the barcode number
             <input id="barcode-input" type="text" inputmode="numeric" autocomplete="off" placeholder="8 to 14 digits" required>
           </label>
-          <div class="row-inline">
-            <label class="field" style="flex:1">Serving size (grams)
-              <input id="barcode-grams" type="number" min="1" max="2000" step="any" value="100">
-            </label>
-            <button type="submit" class="primary" id="barcode-btn">Look up
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
-            </button>
+          <div class="field" role="group" aria-label="Serving size">
+            <span>Serving size</span>
+            <div class="serving-row">
+              <input id="barcode-amount" type="number" min="0" step="any" value="100" aria-label="Serving amount">
+              <select id="barcode-unit" aria-label="Serving unit"></select>
+            </div>
           </div>
+          <button type="submit" class="primary" id="barcode-btn">Look up
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+          </button>
         </form>
 
         <div class="card stack" id="scan-card" hidden>
@@ -788,9 +799,8 @@ function renderLabel(label) {
   }
 
   /* An empty servingSize means there is no household measure, so show grams only */
-  const sizeText = label.servingSize
-    ? label.servingSize + ' (' + label.servingGrams + 'g)'
-    : label.servingGrams + 'g';
+  const gramsText = formatServingGrams(label.servingGrams) + 'g';
+  const sizeText = label.servingSize ? label.servingSize + ' (' + gramsText + ')' : gramsText;
   const size = el('div', 'row first serving-size');
   size.append(el('span', null, 'Serving size'), el('span', null, sizeText));
   root.append(size);
@@ -1141,7 +1151,7 @@ function resolveGrams(item, portions) {
 
 /* Adds up the counted ingredients and divides by servings; returns label data.
    A nutrient is null (no data) if any counted ingredient lacks it. */
-function buildRecipeLabel(entries, servings) {
+function buildRecipeLabel(entries, servings, servingName) {
   const totalGrams = entries.reduce((sum, e) => sum + e.grams, 0);
   const sumOf = key => {
     let total = 0;
@@ -1158,7 +1168,7 @@ function buildRecipeLabel(entries, servings) {
   });
   return {
     servingsPerContainer: servings,
-    servingSize: '1 serving',
+    servingSize: '1 ' + (servingName || 'serving'),
     servingGrams: Math.round(totalGrams / servings),
     calories: sumOf('calories'),
     nutrients: nutrients
@@ -1184,6 +1194,75 @@ async function fetchPortions(fdcId, apiKey) {
 /* True for errors that should stop the whole run (bad key, rate limit, no connection) */
 function isFatalLookupError(err) {
   return !err.status || err.status === 400 || err.status === 403 || err.status === 429;
+}
+
+/* ---------- Serving size units (no DOM) ---------- */
+
+const GRAMS_PER_OZ = 28.3495;
+const MIN_SERVING_GRAMS = 1;
+const MAX_SERVING_GRAMS = 2000;
+const MAX_HOUSEHOLD_UNITS = 20;
+
+/* A serving unit: id (also the dropdown value), dropdown label, grams in one unit, and the
+   household word printed on the label ('' for grams and ounces) */
+const UNIT_GRAMS = { id: 'g', label: 'grams (g)', gramsPer: 1, household: '' };
+const UNIT_OUNCES = { id: 'oz', label: 'ounces (oz)', gramsPer: GRAMS_PER_OZ, household: '' };
+
+/* Serving unit choices: grams, ounces, then the food's own household measures (cup, tbsp, slice).
+   Household measures come from USDA portions ({ text, gramsPer }); weights are skipped as duplicates. */
+function servingUnits(portions) {
+  const units = [UNIT_GRAMS, UNIT_OUNCES];
+  const seen = new Set();
+  (portions || []).forEach(p => {
+    if (units.length >= 2 + MAX_HOUSEHOLD_UNITS) return;
+    if (seen.has(p.text) || startsWithWeight(p.text)) return;
+    seen.add(p.text);
+    units.push({ id: 'h:' + p.text, label: p.text + ' (' + formatNumber(p.gramsPer) + ' g)', gramsPer: p.gramsPer, household: p.text });
+  });
+  return units;
+}
+
+/* True when a serving weight is inside the range the app accepts */
+function isValidServingGrams(grams) {
+  return grams >= MIN_SERVING_GRAMS && grams <= MAX_SERVING_GRAMS;
+}
+
+/* Common label fractions, so 0.5 prints as "1/2" */
+const AMOUNT_FRACTIONS = [[1 / 8, '1/8'], [1 / 4, '1/4'], [1 / 3, '1/3'], [3 / 8, '3/8'], [1 / 2, '1/2'],
+                          [5 / 8, '5/8'], [2 / 3, '2/3'], [3 / 4, '3/4'], [7 / 8, '7/8']];
+
+/* Formats a serving amount for the label: whole numbers, common fractions ("1 1/2"), else two decimals */
+function formatServingAmount(amount) {
+  const whole = Math.floor(amount);
+  const frac = amount - whole;
+  if (frac > 0.988) return String(whole + 1);
+  if (frac < 0.012) return String(whole);
+  const hit = AMOUNT_FRACTIONS.find(f => Math.abs(f[0] - frac) < 0.012);
+  if (hit) return (whole ? whole + ' ' : '') + hit[1];
+  return String(Math.round(amount * 100) / 100);
+}
+
+/* Formats an amount for a number box: at most two decimals, no trailing zeros */
+function trimAmount(amount) {
+  return String(Math.round(amount * 100) / 100);
+}
+
+/* Household words that take an "s" when the amount is more than one */
+const PLURAL_UNIT_WORDS = /^(cup|slice|piece|clove|stick|can|serving|link)$/;
+
+/* The label's serving size text for an amount in a unit: '' for grams (the label then shows
+   grams only), "2 oz" for ounces, "1/2 cup" for a household measure */
+function servingSizeText(unit, amount) {
+  if (unit.id === 'g') return '';
+  const n = formatServingAmount(amount);
+  if (unit.id === 'oz') return n + ' oz';
+  const word = amount > 1.012 && PLURAL_UNIT_WORDS.test(unit.household) ? unit.household + 's' : unit.household;
+  return n + ' ' + word;
+}
+
+/* Grams as printed on the label: whole grams from 5 g up, one decimal below that */
+function formatServingGrams(grams) {
+  return grams >= 5 ? String(Math.round(grams)) : String(Math.round(grams * 10) / 10);
 }
 
 /* ---------- Open Food Facts lookup (no DOM) ---------- */
@@ -1288,16 +1367,20 @@ const state = {
   apiKey: loadSavedKey(),
   results: [],
   selected: null,
+  /* Serving size: grams drives the label math; unitId and amount are how the person entered it */
   grams: 100,
+  unitId: 'g',
+  amount: 100,
+  portions: [],
   label: SAMPLE_LABEL,
   sourceText: 'Sample data. Search for a food to replace it.'
 };
 
 /* Barcode-mode state: the looked-up product, chosen grams and the computed label */
-const barcode = { product: null, grams: 100, label: null, sourceText: '' };
+const barcode = { product: null, grams: 100, unitId: 'g', amount: 100, label: null, sourceText: '' };
 
 /* Recipe-mode state: one entry per ingredient line, plus the computed label */
-const recipe = { servings: 1, lines: [], nextId: 1, label: null, sourceText: '', counted: 0 };
+const recipe = { servings: 1, servingName: '', lines: [], nextId: 1, label: null, sourceText: '', counted: 0 };
 
 /* Creates the state for one ingredient line (not yet looked up) */
 function makeLine(raw) {
@@ -1374,8 +1457,10 @@ function recomputeRecipe() {
     .map(l => ({ food: l.candidates[l.selected], grams: l.grams }));
   recipe.counted = entries.length;
   if (!entries.length) { recipe.label = null; recipe.sourceText = ''; return; }
-  recipe.label = buildRecipeLabel(entries, recipe.servings);
+  recipe.label = buildRecipeLabel(entries, recipe.servings, recipe.servingName);
+  const grams = recipe.label.servingGrams;
   recipe.sourceText = 'Recipe label per serving (' + recipe.servings + ' servings). ' +
+    'Each serving is about ' + formatServingGrams(grams) + ' g (' + formatNumber(grams / GRAMS_PER_OZ) + ' oz). ' +
     entries.length + ' of ' + recipe.lines.length + ' ingredients counted. Source: USDA FoodData Central.';
 }
 
@@ -1383,6 +1468,8 @@ function recomputeRecipe() {
 function applySelection() {
   if (!state.selected) return;
   state.label = buildLabelFromFood(state.selected, state.grams);
+  const unit = servingUnits(state.portions).find(u => u.id === state.unitId) || UNIT_GRAMS;
+  state.label.servingSize = servingSizeText(unit, state.amount);
   state.sourceText = 'Source: USDA FoodData Central (' + state.selected.dataType + '): ' + state.selected.description;
 }
 
@@ -1396,7 +1483,8 @@ const ui = {
   keyStatus: document.getElementById('key-status'),
   searchForm: document.getElementById('search-form'),
   queryInput: document.getElementById('query-input'),
-  gramsInput: document.getElementById('grams-input'),
+  amountInput: document.getElementById('amount-input'),
+  unitSelect: document.getElementById('unit-select'),
   searchStatus: document.getElementById('search-status'),
   results: document.getElementById('results'),
   labelMount: document.getElementById('label-mount'),
@@ -1416,13 +1504,15 @@ const ui = {
   scanStop: document.getElementById('scan-stop'),
   barcodeForm: document.getElementById('barcode-form'),
   barcodeInput: document.getElementById('barcode-input'),
-  barcodeGrams: document.getElementById('barcode-grams'),
+  barcodeAmount: document.getElementById('barcode-amount'),
+  barcodeUnit: document.getElementById('barcode-unit'),
   barcodeBtn: document.getElementById('barcode-btn'),
   barcodeStatus: document.getElementById('barcode-status'),
   barcodeInfo: document.getElementById('barcode-info'),
   recipeForm: document.getElementById('recipe-form'),
   recipeInput: document.getElementById('recipe-input'),
   servingsInput: document.getElementById('servings-input'),
+  servingNameInput: document.getElementById('serving-name-input'),
   recipeBtn: document.getElementById('recipe-btn'),
   recipeStatus: document.getElementById('recipe-status'),
   lines: document.getElementById('lines')
@@ -1477,6 +1567,7 @@ function drawResults() {
       applySelection();
       drawResults();
       drawLabel();
+      loadPortionsForSelected();
     });
     item.append(btn);
     return item;
@@ -1531,16 +1622,80 @@ ui.searchForm.addEventListener('submit', async event => {
   drawResults();
   drawLabel();
   setStatus(ui.searchStatus, 'Showing the best match. Pick another below if it is wrong.', false);
+  loadPortionsForSelected();
 });
 
-/* Rescales the label when the serving size changes */
-ui.gramsInput.addEventListener('input', () => {
-  const grams = Number(ui.gramsInput.value);
-  if (!(grams >= 1 && grams <= 2000)) return;
-  state.grams = grams;
+/* Fills a unit dropdown with the given units and selects one */
+function drawUnitOptions(select, units, selectedId) {
+  select.replaceChildren(...units.map(u => {
+    const option = el('option', null, u.label);
+    option.value = u.id;
+    return option;
+  }));
+  select.value = selectedId;
+}
+
+/* Connects an amount box and unit dropdown to a serving model ({ grams, unitId, amount }).
+   Typing an amount recomputes grams; changing the unit keeps the same weight and shows it in
+   the new unit. onChange redraws whatever depends on the serving. */
+function wireServing(model, amountInput, unitSelect, getUnits, onChange) {
+  amountInput.addEventListener('input', () => {
+    const amount = Number(amountInput.value);
+    const unit = getUnits().find(u => u.id === model.unitId);
+    if (!unit || !(amount > 0)) return;
+    const grams = amount * unit.gramsPer;
+    if (!isValidServingGrams(grams)) return;
+    model.amount = amount;
+    model.grams = grams;
+    onChange();
+  });
+  unitSelect.addEventListener('change', () => {
+    const unit = getUnits().find(u => u.id === unitSelect.value);
+    if (!unit) return;
+    model.unitId = unit.id;
+    model.amount = model.grams / unit.gramsPer;
+    amountInput.value = trimAmount(model.amount);
+    onChange();
+  });
+}
+
+/* Applies a food's household measures to the single-food serving. A chosen measure that the new
+   food also has keeps its amount (1 cup stays 1 cup); one it lacks falls back to grams. */
+function setPortions(portions) {
+  state.portions = portions;
+  const unit = servingUnits(portions).find(u => u.id === state.unitId);
+  const grams = unit ? unit.gramsPer * state.amount : 0;
+  if (unit && unit.household && isValidServingGrams(grams)) {
+    state.grams = grams;
+  } else if (!unit || unit.household) {
+    state.unitId = 'g';
+    state.amount = state.grams;
+    ui.amountInput.value = trimAmount(state.amount);
+  }
+  drawUnitOptions(ui.unitSelect, servingUnits(portions), state.unitId);
+  applySelection();
+  drawLabel();
+}
+
+/* Loads the selected food's household measures (cup, tbsp, slice...) in the background.
+   If they cannot be loaded, only grams and ounces are offered. */
+async function loadPortionsForSelected() {
+  const food = state.selected;
+  if (!food) return;
+  let portions = [];
+  try {
+    portions = await fetchPortions(food.fdcId, state.apiKey);
+  } catch (err) {
+    portions = [];
+  }
+  if (state.selected === food) setPortions(portions);
+}
+
+wireServing(state, ui.amountInput, ui.unitSelect, () => servingUnits(state.portions), () => {
   applySelection();
   drawLabel();
 });
+drawUnitOptions(ui.unitSelect, servingUnits([]), state.unitId);
 
 /* ---------- Recipe wiring (DOM) ---------- */
 
@@ -1702,6 +1857,7 @@ ui.recipeForm.addEventListener('submit', async event => {
   }
   const servings = Number(ui.servingsInput.value);
   recipe.servings = servings >= 1 ? servings : 1;
+  recipe.servingName = ui.servingNameInput.value.trim();
   ui.recipeBtn.disabled = true;
   recipe.lines = [];
   recomputeRecipe();
@@ -1728,6 +1884,15 @@ ui.recipeForm.addEventListener('submit', async event => {
   refreshRecipe();
 });
 
+/* Updates the label's serving name ("1 scone") as the person types it */
+ui.servingNameInput.addEventListener('input', () => {
+  recipe.servingName = ui.servingNameInput.value.trim();
+  if (recipe.lines.length) {
+    recomputeRecipe();
+    drawLabel();
+  }
+});
+
 /* Rescales the recipe label when the servings count changes */
 ui.servingsInput.addEventListener('input', () => {
   const servings = Number(ui.servingsInput.value);
@@ -1741,6 +1906,8 @@ ui.servingsInput.addEventListener('input', () => {
 /* Rebuilds the barcode label from the product and current grams */
 function applyBarcode() {
   barcode.label = buildBarcodeLabel(barcode.product, barcode.grams);
+  /* In ounces the label shows the ounce amount instead of the package's own serving text */
+  if (barcode.unitId === 'oz') barcode.label.servingSize = servingSizeText(UNIT_OUNCES, barcode.amount);
   const who = (barcode.product.brand ? barcode.product.brand + ' ' : '') + barcode.product.name;
   barcode.sourceText = 'Source: Open Food Facts community data, which may be incomplete or wrong: ' + who;
 }
@@ -1755,7 +1922,7 @@ function drawBarcodeInfo() {
   lines.push(el('span', 'meta', 'Barcode ' + product.code));
   lines.push(el('span', 'meta', product.servingText
     ? 'Serving on package: ' + product.servingText
-    : 'No serving size on record; using grams entered above.'));
+    : 'No serving size on record; using the serving size entered above.'));
   ui.barcodeInfo.replaceChildren(...lines);
 }
 
@@ -1788,21 +1955,23 @@ ui.barcodeForm.addEventListener('submit', async event => {
   }
   barcode.product = product;
   barcode.grams = product.servingGrams || 100;
-  ui.barcodeGrams.value = formatNumber(barcode.grams);
+  barcode.unitId = 'g';
+  barcode.amount = barcode.grams;
+  drawUnitOptions(ui.barcodeUnit, servingUnits([]), barcode.unitId);
+  ui.barcodeAmount.value = trimAmount(barcode.amount);
   applyBarcode();
   drawBarcodeInfo();
   drawLabel();
   setStatus(ui.barcodeStatus, 'Found. Check it against the package; community data can be wrong.', false);
 });
 
-/* Rescales the barcode label when the serving size changes */
-ui.barcodeGrams.addEventListener('input', () => {
-  const grams = Number(ui.barcodeGrams.value);
-  if (!(grams >= 1 && grams <= 2000) || !barcode.product) return;
-  barcode.grams = grams;
+/* Rescales the barcode label when the serving size or its unit changes (grams or ounces) */
+wireServing(barcode, ui.barcodeAmount, ui.barcodeUnit, () => servingUnits([]), () => {
+  if (!barcode.product) return;
   applyBarcode();
   drawLabel();
 });
+drawUnitOptions(ui.barcodeUnit, servingUnits([]), barcode.unitId);
 
 ui.tabSingle.addEventListener('click', () => setMode('single'));
 ui.tabRecipe.addEventListener('click', () => setMode('recipe'));
