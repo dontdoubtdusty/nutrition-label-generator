@@ -16,5 +16,8 @@ Session counter: 1
 - Built v0.04: recipe mode (free-text lines, USDA portions for unit conversion, review cards).
   Decisions: flag-and-ask-for-grams on bad units; recipes not saved; nutrient null if any
   counted ingredient lacks it.
-- Next: user tries recipe mode live (portion matching is untested against real USDA data);
+- Built v0.05: Barcode tab (Open Food Facts, barcode only). Decisions: third tab; package serving
+  size as default grams; no camera scanning; no shape change.
+- Next: user tries a real barcode on the deployed page (CORS unconfirmed); then (earlier note)
+  user tries recipe mode live (portion matching is untested against real USDA data);
   then v0.05 packaged foods from Open Food Facts (needs a scope discussion); verify rounding rules.

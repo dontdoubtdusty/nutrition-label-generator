@@ -34,6 +34,12 @@ GitHub Pages, served straight from `main`.
   totals and the label is marked incomplete. A nutrient shows a dash if any counted
   ingredient lacks it. Cooking losses are ignored, and recipes are not saved.
 
+- v0.05: Barcode tab. Type a product's 8 to 14 digit barcode number to get its nutrition from
+  Open Food Facts (no key needed). The label uses the package's own serving size and gram
+  weight when listed, otherwise 100 g, and you can rescale with the grams box. Open Food Facts
+  stores minerals and vitamins in grams; they are converted to mg and mcg. Missing fields show
+  a dash. This is community-edited data: check it against the package.
+
 ## Not for regulatory use
 This is a hobby tool. USDA averages and a simplified rounding table are not a substitute
 for lab analysis or a compliant label. Some rounding rules were taken from a secondary

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Nutrition Label Creator v0.04</title>
+<title>Nutrition Label Creator v0.05</title>
 <style>
   /* Page theme tokens; follows the system light/dark setting */
   :root {
@@ -199,12 +199,14 @@
   .lines { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
   .lines .raw { font-weight: 600; overflow-wrap: anywhere; }
   .lines .status { min-height: 0; }
+  #barcode-info .raw { font-weight: 600; overflow-wrap: anywhere; }
+  #barcode-info .meta { font-size: 0.85rem; color: var(--page-muted); overflow-wrap: anywhere; }
 </style>
 </head>
 <body>
 <header>
   <h1>Nutrition Label Creator</h1>
-  <span class="version">v0.04</span>
+  <span class="version">v0.05</span>
 </header>
 <main>
   <div class="layout">
@@ -226,6 +228,7 @@
       <div class="tabs" role="tablist" aria-label="Mode">
         <button type="button" role="tab" id="tab-single" aria-selected="true" aria-controls="panel-single">Single food</button>
         <button type="button" role="tab" id="tab-recipe" aria-selected="false" aria-controls="panel-recipe">Recipe</button>
+        <button type="button" role="tab" id="tab-barcode" aria-selected="false" aria-controls="panel-barcode">Barcode</button>
       </div>
 
       <div class="panel-body" id="panel-single" role="tabpanel" aria-labelledby="tab-single">
@@ -260,6 +263,23 @@
 
         <p class="status" id="recipe-status" aria-live="polite"></p>
         <ul class="lines" id="lines"></ul>
+      </div>
+
+      <div class="panel-body" id="panel-barcode" role="tabpanel" aria-labelledby="tab-barcode" hidden>
+        <form id="barcode-form" class="card stack">
+          <label class="field">Barcode number (from Open Food Facts)
+            <input id="barcode-input" type="text" inputmode="numeric" autocomplete="off" placeholder="8 to 14 digits" required>
+          </label>
+          <div class="row-inline">
+            <label class="field" style="flex:1">Serving size (grams)
+              <input id="barcode-grams" type="number" min="1" max="2000" step="any" value="100">
+            </label>
+            <button type="submit" class="primary" id="barcode-btn">Look up</button>
+          </div>
+        </form>
+
+        <p class="status" id="barcode-status" aria-live="polite"></p>
+        <div class="card stack" id="barcode-info" hidden></div>
       </div>
     </div>
 
@@ -829,6 +849,101 @@ function isFatalLookupError(err) {
   return !err.status || err.status === 400 || err.status === 403 || err.status === 429;
 }
 
+/* ---------- Open Food Facts lookup (no DOM) ---------- */
+
+const OFF_PRODUCT_URL = 'https://world.openfoodfacts.org/api/v2/product';
+
+/* Open Food Facts field for each label nutrient (per 100 g), with the factor that
+   converts its unit (grams, or kcal for energy) into the label unit */
+const OFF_FIELDS = {
+  calories:    { field: 'energy-kcal_100g',    factor: 1 },
+  totalFat:    { field: 'fat_100g',            factor: 1 },
+  satFat:      { field: 'saturated-fat_100g',  factor: 1 },
+  transFat:    { field: 'trans-fat_100g',      factor: 1 },
+  cholesterol: { field: 'cholesterol_100g',    factor: 1000 },
+  sodium:      { field: 'sodium_100g',         factor: 1000 },
+  totalCarbs:  { field: 'carbohydrates_100g',  factor: 1 },
+  fiber:       { field: 'fiber_100g',          factor: 1 },
+  totalSugars: { field: 'sugars_100g',         factor: 1 },
+  addedSugars: { field: 'added-sugars_100g',   factor: 1 },
+  protein:     { field: 'proteins_100g',       factor: 1 },
+  vitaminD:    { field: 'vitamin-d_100g',      factor: 1000000 },
+  calcium:     { field: 'calcium_100g',        factor: 1000 },
+  iron:        { field: 'iron_100g',           factor: 1000 },
+  potassium:   { field: 'potassium_100g',      factor: 1000 }
+};
+
+/* Reads an Open Food Facts value as a non-negative number, or null if missing or invalid */
+function offNumber(value) {
+  if (value === undefined || value === null || value === '') return null;
+  const n = Number(value);
+  return isFinite(n) && n >= 0 ? n : null;
+}
+
+/* Converts an Open Food Facts nutriments object into per-100g values in label units.
+   Missing nutrients are null. Energy falls back to kJ divided by 4.184 if kcal is absent. */
+function offPer100g(nutriments) {
+  const out = {};
+  Object.keys(OFF_FIELDS).forEach(key => {
+    const n = offNumber(nutriments[OFF_FIELDS[key].field]);
+    out[key] = n === null ? null : n * OFF_FIELDS[key].factor;
+  });
+  if (out.calories === null) {
+    const kj = offNumber(nutriments['energy_100g']);
+    if (kj !== null) out.calories = kj / 4.184;
+  }
+  return out;
+}
+
+/* Cleans typed barcode text (spaces and hyphens removed); returns digits or null if not 8 to 14 digits */
+function normalizeBarcode(text) {
+  const digits = text.replace(/[\s-]/g, '');
+  return /^\d{8,14}$/.test(digits) ? digits : null;
+}
+
+/* Fetches one product by barcode. Returns a food-like object, or null if the product is not found. */
+async function fetchProduct(code) {
+  const params = new URLSearchParams({ fields: 'product_name,brands,serving_size,serving_quantity,nutriments' });
+  const res = await fetch(OFF_PRODUCT_URL + '/' + code + '?' + params.toString());
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    const err = new Error('HTTP ' + res.status);
+    err.status = res.status;
+    throw err;
+  }
+  const data = await res.json();
+  if (!data || data.status !== 1 || !data.product) return null;
+  const p = data.product;
+  const servingGrams = offNumber(p.serving_quantity);
+  return {
+    code: code,
+    name: String(p.product_name || '').trim() || 'Unnamed product',
+    brand: String(p.brands || '').split(',')[0].trim(),
+    servingText: String(p.serving_size || '').trim(),
+    servingGrams: servingGrams !== null && servingGrams >= 1 ? servingGrams : null,
+    per100g: offPer100g(p.nutriments || {})
+  };
+}
+
+/* Builds label data for a product at the chosen grams. The package's own serving text is
+   shown only when the grams still match the package serving. */
+function buildBarcodeLabel(product, grams) {
+  const label = buildLabelFromFood(product, grams);
+  if (product.servingGrams && grams === product.servingGrams) {
+    const text = product.servingText.replace(/\([^)]*\)/g, '').trim();
+    const justGrams = /^[\d.,]+\s*(g|grams?)?$/i.test(text);
+    label.servingSize = justGrams ? '' : text;
+  }
+  return label;
+}
+
+/* Turns a failed Open Food Facts lookup into a short message */
+function describeOffError(err) {
+  if (err.status === 429) return 'Open Food Facts rate limit reached. Wait a bit and try again.';
+  if (err.status) return 'Open Food Facts returned an error (' + err.status + ').';
+  return 'Could not reach Open Food Facts. Check your connection.';
+}
+
 /* ---------- Page state ---------- */
 
 const state = {
@@ -840,6 +955,9 @@ const state = {
   label: SAMPLE_LABEL,
   sourceText: 'Sample data. Search for a food to replace it.'
 };
+
+/* Barcode-mode state: the looked-up product, chosen grams and the computed label */
+const barcode = { product: null, grams: 100, label: null, sourceText: '' };
 
 /* Recipe-mode state: one entry per ingredient line, plus the computed label */
 const recipe = { servings: 1, lines: [], nextId: 1, label: null, sourceText: '', counted: 0 };
@@ -918,8 +1036,16 @@ const ui = {
   sourceNote: document.getElementById('source-note'),
   tabSingle: document.getElementById('tab-single'),
   tabRecipe: document.getElementById('tab-recipe'),
+  tabBarcode: document.getElementById('tab-barcode'),
   panelSingle: document.getElementById('panel-single'),
   panelRecipe: document.getElementById('panel-recipe'),
+  panelBarcode: document.getElementById('panel-barcode'),
+  barcodeForm: document.getElementById('barcode-form'),
+  barcodeInput: document.getElementById('barcode-input'),
+  barcodeGrams: document.getElementById('barcode-grams'),
+  barcodeBtn: document.getElementById('barcode-btn'),
+  barcodeStatus: document.getElementById('barcode-status'),
+  barcodeInfo: document.getElementById('barcode-info'),
   recipeForm: document.getElementById('recipe-form'),
   recipeInput: document.getElementById('recipe-input'),
   servingsInput: document.getElementById('servings-input'),
@@ -941,19 +1067,25 @@ function drawLabel() {
   if (state.mode === 'recipe') {
     label = recipe.label || SAMPLE_LABEL;
     note = recipe.label ? recipe.sourceText : 'Sample data. Add ingredients and press Calculate.';
+  } else if (state.mode === 'barcode') {
+    label = barcode.label || SAMPLE_LABEL;
+    note = barcode.label ? barcode.sourceText : 'Sample data. Enter a barcode to replace it.';
   }
   ui.labelMount.replaceChildren(renderLabel(label));
   ui.sourceNote.textContent = note;
 }
 
-/* Switches between the single-food and recipe panels */
+/* Switches between the single-food, recipe and barcode panels */
 function setMode(mode) {
   state.mode = mode;
-  const isRecipe = mode === 'recipe';
-  ui.panelSingle.hidden = isRecipe;
-  ui.panelRecipe.hidden = !isRecipe;
-  ui.tabSingle.setAttribute('aria-selected', String(!isRecipe));
-  ui.tabRecipe.setAttribute('aria-selected', String(isRecipe));
+  const tabs = { single: ui.tabSingle, recipe: ui.tabRecipe, barcode: ui.tabBarcode };
+  const panels = { single: ui.panelSingle, recipe: ui.panelRecipe, barcode: ui.panelBarcode };
+  Object.keys(tabs).forEach(m => {
+    tabs[m].setAttribute('aria-selected', String(m === mode));
+    panels[m].hidden = m !== mode;
+  });
+  /* Open Food Facts needs no key, so the USDA key box is hidden on the barcode tab */
+  ui.keyBox.hidden = mode === 'barcode';
   drawLabel();
 }
 
@@ -1153,8 +1285,77 @@ ui.servingsInput.addEventListener('input', () => {
   if (recipe.lines.length) refreshRecipe();
 });
 
+/* ---------- Barcode wiring (DOM) ---------- */
+
+/* Rebuilds the barcode label from the product and current grams */
+function applyBarcode() {
+  barcode.label = buildBarcodeLabel(barcode.product, barcode.grams);
+  const who = (barcode.product.brand ? barcode.product.brand + ' ' : '') + barcode.product.name;
+  barcode.sourceText = 'Source: Open Food Facts community data, which may be incomplete or wrong: ' + who;
+}
+
+/* Shows the product name, brand and package serving under the form, or hides the card */
+function drawBarcodeInfo() {
+  const product = barcode.product;
+  ui.barcodeInfo.hidden = !product;
+  if (!product) { ui.barcodeInfo.replaceChildren(); return; }
+  const lines = [el('span', 'raw', product.name)];
+  if (product.brand) lines.push(el('span', 'meta', product.brand));
+  lines.push(el('span', 'meta', 'Barcode ' + product.code));
+  lines.push(el('span', 'meta', product.servingText
+    ? 'Serving on package: ' + product.servingText
+    : 'No serving size on record; using grams entered above.'));
+  ui.barcodeInfo.replaceChildren(...lines);
+}
+
+/* Looks up the typed barcode when the barcode form is submitted */
+ui.barcodeForm.addEventListener('submit', async event => {
+  event.preventDefault();
+  const code = normalizeBarcode(ui.barcodeInput.value);
+  if (!code) {
+    setStatus(ui.barcodeStatus, 'Enter the 8 to 14 digit number printed under the barcode.', true);
+    return;
+  }
+  setStatus(ui.barcodeStatus, 'Looking up...', false);
+  ui.barcodeBtn.disabled = true;
+  let product;
+  try {
+    product = await fetchProduct(code);
+  } catch (err) {
+    setStatus(ui.barcodeStatus, describeOffError(err), true);
+    return;
+  } finally {
+    ui.barcodeBtn.disabled = false;
+  }
+  if (!product) {
+    barcode.product = null;
+    barcode.label = null;
+    drawBarcodeInfo();
+    drawLabel();
+    setStatus(ui.barcodeStatus, 'No product with that barcode in Open Food Facts.', true);
+    return;
+  }
+  barcode.product = product;
+  barcode.grams = product.servingGrams || 100;
+  ui.barcodeGrams.value = formatNumber(barcode.grams);
+  applyBarcode();
+  drawBarcodeInfo();
+  drawLabel();
+  setStatus(ui.barcodeStatus, 'Found. Check it against the package; community data can be wrong.', false);
+});
+
+/* Rescales the barcode label when the serving size changes */
+ui.barcodeGrams.addEventListener('input', () => {
+  const grams = Number(ui.barcodeGrams.value);
+  if (!(grams >= 1 && grams <= 2000) || !barcode.product) return;
+  barcode.grams = grams;
+  applyBarcode();
+  drawLabel();
+});
+
 ui.tabSingle.addEventListener('click', () => setMode('single'));
 ui.tabRecipe.addEventListener('click', () => setMode('recipe'));
+ui.tabBarcode.addEventListener('click', () => setMode('barcode'));
 
 /* ---------- Start ---------- */
 

@@ -8,7 +8,8 @@ recreation of the standard FDA Nutrition Facts label.
 ## Decisions made (session 1)
 - Single self-contained `index.html`: inline CSS and JS, no build step, no framework.
 - Hosting: GitHub Pages. No backend, so all lookups run from the browser.
-- Data source: USDA FoodData Central (browser-callable). Open Food Facts is not used for now.
+- Data sources: USDA FoodData Central for generic foods and recipes; Open Food Facts for single
+  packaged products by barcode only (no name search, not usable as a recipe ingredient).
 - Input: both modes eventually. Recipe mode (ingredients with amounts plus a servings
   count) is built first; single-item mode is a shortcut over it (a recipe with one line).
 - Label: FDA vertical format, rendered as HTML/CSS, light and dark mode, 375px to desktop.
@@ -23,7 +24,7 @@ recreation of the standard FDA Nutrition Facts label.
 1. v0.01 Label renderer from hardcoded sample data (no lookups, no saved data). Done.
 2. v0.02 Single food lookup: USDA search, pick a match, serving size in grams. Done.
 3. v0.04 Recipe mode: parse lines, convert units to grams, sum, divide by servings. Done.
-4. v0.05 Packaged foods from Open Food Facts (scope still to be agreed).
+4. v0.05 Packaged foods by barcode from Open Food Facts. Done.
 5. Phone layout: the label sits below a long list of review cards; consider a sticky or collapsible layout.
 
 ## Rounding and unknown data (v0.03)
@@ -44,6 +45,18 @@ recreation of the standard FDA Nutrition Facts label.
   lacks a nutrient, that nutrient is null (dash), never a partial sum.
 - Each recipe label is a normal label: servingsPerContainer = servings, servingSize "1 serving".
 - Recipes are not saved. Reloading the page loses them.
+
+## Barcode mode (v0.05)
+- Endpoint: https://world.openfoodfacts.org/api/v2/product/{barcode} with a fields list. No key.
+- Mapping: per-100g fields (mass nutrients in grams, energy in kcal) converted to label units:
+  cholesterol, sodium, calcium, iron and potassium times 1000 (mg); vitamin D times 1,000,000
+  (mcg). Energy falls back to kJ / 4.184. Missing, empty or negative values are null (dash).
+- Serving: the package serving_quantity (grams, at least 1) is the default grams; otherwise 100.
+  The package serving text (parentheses removed, hidden if it is only grams) is shown only
+  while the grams still equal the package serving.
+- Barcode input: 8 to 14 digits after removing spaces and hyphens. No camera scanning.
+- The label data shape is unchanged. Nothing new is saved.
+- The USDA key box is hidden on the barcode tab.
 
 ## Saved data
 - `nlc.usdaKey` in localStorage: the user's USDA API key (string). Nothing else is saved.
@@ -73,6 +86,10 @@ before it is made.
 - Portion matching was built from the USDA data dictionary and mocked data, not from live
   responses; real portion text (for example "cup, chopped" versus Foundation unit names) may
   need tuning once tried on real recipes.
+- Open Food Facts from a browser: the documentation I could read did not mention CORS or
+  User-Agent rules, and field names and units come from its docs and mocked data, not a live
+  response. Confirm with one real barcode on the deployed page.
+- Open Food Facts serving_quantity is treated as grams even for liquids (it may be millilitres).
 - Ranges ("2-3 cups"), "to taste" lines and multi-ingredient lines are not parsed.
 - Missing nutrients show a dash. Whether to estimate or hide those rows instead is undecided.
 - Daily Values: which set to use (current FDA 2016 set is the assumption).
