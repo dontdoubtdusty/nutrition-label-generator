@@ -22,14 +22,28 @@ recreation of the standard FDA Nutrition Facts label.
 ## Build order
 1. v0.01 Label renderer from hardcoded sample data (no lookups, no saved data). Done.
 2. v0.02 Single food lookup: USDA search, pick a match, serving size in grams. Done.
-3. Recipe mode: parse lines, convert units to grams, sum, divide by servings.
-4. Branded foods and household serving sizes (decide whether these are wanted).
+3. v0.04 Recipe mode: parse lines, convert units to grams, sum, divide by servings. Done.
+4. v0.05 Packaged foods from Open Food Facts (scope still to be agreed).
+5. Phone layout: the label sits below a long list of review cards; consider a sticky or collapsible layout.
 
 ## Rounding and unknown data (v0.03)
 - Label data holds actual unrounded values; rounding happens only when drawing.
 - A nutrient `amount` (or `calories`) of null means "no data": shown as a dash, no percent.
 - Percent Daily Value is computed from the unrounded amount and rounded to a whole percent;
   vitamin D, calcium, iron and potassium use 2% / 5% / 10% steps (the 2018 CFR text).
+
+## Recipe mode (v0.04)
+- Input: free-text lines. Parser reads amount (2, 0.5, 1/2, 1 1/2, fraction glyphs), then a unit
+  (weight, volume, fl oz, or a counted word such as slice or clove) or a size word (small, medium,
+  large), then the name (text before a comma, parentheses removed).
+- Conversion: weights are direct. Volumes use the food's USDA portions: same unit first (prefer
+  the plain "cup"), otherwise derived from any other volume portion by volume ratio. Counts use
+  a size match, else "medium", else "large", else the first non-weight, non-volume portion.
+  Anything unconvertible is flagged and left out; the person can type grams.
+- Totals: nutrients are summed over counted lines and divided by servings. If any counted line
+  lacks a nutrient, that nutrient is null (dash), never a partial sum.
+- Each recipe label is a normal label: servingsPerContainer = servings, servingSize "1 serving".
+- Recipes are not saved. Reloading the page loses them.
 
 ## Saved data
 - `nlc.usdaKey` in localStorage: the user's USDA API key (string). Nothing else is saved.
@@ -54,6 +68,12 @@ before it is made.
   source ( https://www.recipal.com/blog/labeling-rules-and-guidelines/fda-us-nutrition-label-rounding-rules ).
   The 2% / 5% / 10% vitamin and mineral percent steps come from the 2018 CFR text and may have been
   changed by the 2016 labeling rule. Confirm against the current 21 CFR 101.9 before trusting them.
+- Cooking losses and yield: recipe totals describe raw ingredients; cooked weight, water loss and
+  fat loss are ignored. A cooked-weight serving size would need a yield input.
+- Portion matching was built from the USDA data dictionary and mocked data, not from live
+  responses; real portion text (for example "cup, chopped" versus Foundation unit names) may
+  need tuning once tried on real recipes.
+- Ranges ("2-3 cups"), "to taste" lines and multi-ingredient lines are not parsed.
 - Missing nutrients show a dash. Whether to estimate or hide those rows instead is undecided.
 - Daily Values: which set to use (current FDA 2016 set is the assumption).
 - Whether lookups are cached, and where (nothing is saved anywhere today).

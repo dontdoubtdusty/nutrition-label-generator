@@ -12,4 +12,9 @@ Session counter: 1
 - User loaded a real key; live results not reported back yet.
 - Built v0.03: FDA rounding at display, null amounts shown as dashes, vitamin percent steps.
   Approved shape change: amount and calories may be null.
-- Next: user's live test results; verify the unverified rounding rules; then recipe mode.
+- User confirmed live USDA searches work.
+- Built v0.04: recipe mode (free-text lines, USDA portions for unit conversion, review cards).
+  Decisions: flag-and-ask-for-grams on bad units; recipes not saved; nutrient null if any
+  counted ingredient lacks it.
+- Next: user tries recipe mode live (portion matching is untested against real USDA data);
+  then v0.05 packaged foods from Open Food Facts (needs a scope discussion); verify rounding rules.

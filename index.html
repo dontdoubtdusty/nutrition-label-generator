@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Nutrition Label Creator v0.03</title>
+<title>Nutrition Label Creator v0.04</title>
 <style>
   /* Page theme tokens; follows the system light/dark setting */
   :root {
@@ -155,7 +155,7 @@
     padding: 12px;
   }
   .field { display: flex; flex-direction: column; gap: 4px; font-size: 0.85rem; color: var(--page-muted); }
-  input[type="text"], input[type="password"], input[type="number"] {
+  input[type="text"], input[type="password"], input[type="number"], select, textarea {
     font: inherit;
     font-size: 1rem;
     width: 100%;
@@ -188,12 +188,23 @@
   .results button { width: 100%; text-align: left; display: flex; flex-direction: column; gap: 2px; }
   .results .meta { font-size: 0.75rem; color: var(--page-muted); }
   .results button[aria-current="true"] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+
+  /* Mode tabs, panel bodies and recipe review cards */
+  [hidden] { display: none !important; }
+  .tabs { display: flex; gap: 6px; }
+  .tabs button { flex: 1; }
+  .tabs button[aria-selected="true"] { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); font-weight: 600; }
+  .panel-body { display: flex; flex-direction: column; gap: 14px; }
+  textarea { resize: vertical; min-height: 7em; line-height: 1.4; }
+  .lines { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+  .lines .raw { font-weight: 600; overflow-wrap: anywhere; }
+  .lines .status { min-height: 0; }
 </style>
 </head>
 <body>
 <header>
   <h1>Nutrition Label Creator</h1>
-  <span class="version">v0.03</span>
+  <span class="version">v0.04</span>
 </header>
 <main>
   <div class="layout">
@@ -212,20 +223,44 @@
         </form>
       </details>
 
-      <form id="search-form" class="card stack">
-        <label class="field">Food
-          <input id="query-input" type="text" placeholder="cheddar cheese" autocomplete="off" required>
-        </label>
-        <div class="row-inline">
-          <label class="field" style="flex:1">Serving size (grams)
-            <input id="grams-input" type="number" min="1" max="2000" step="1" value="100">
-          </label>
-          <button type="submit" class="primary">Search</button>
-        </div>
-      </form>
+      <div class="tabs" role="tablist" aria-label="Mode">
+        <button type="button" role="tab" id="tab-single" aria-selected="true" aria-controls="panel-single">Single food</button>
+        <button type="button" role="tab" id="tab-recipe" aria-selected="false" aria-controls="panel-recipe">Recipe</button>
+      </div>
 
-      <p class="status" id="search-status" aria-live="polite"></p>
-      <ul class="results" id="results"></ul>
+      <div class="panel-body" id="panel-single" role="tabpanel" aria-labelledby="tab-single">
+        <form id="search-form" class="card stack">
+          <label class="field">Food
+            <input id="query-input" type="text" placeholder="cheddar cheese" autocomplete="off" required>
+          </label>
+          <div class="row-inline">
+            <label class="field" style="flex:1">Serving size (grams)
+              <input id="grams-input" type="number" min="1" max="2000" step="1" value="100">
+            </label>
+            <button type="submit" class="primary">Search</button>
+          </div>
+        </form>
+
+        <p class="status" id="search-status" aria-live="polite"></p>
+        <ul class="results" id="results"></ul>
+      </div>
+
+      <div class="panel-body" id="panel-recipe" role="tabpanel" aria-labelledby="tab-recipe" hidden>
+        <form id="recipe-form" class="card stack">
+          <label class="field">Ingredients, one per line
+            <textarea id="recipe-input" spellcheck="false" placeholder="200 g cheddar cheese&#10;1 1/2 cups flour&#10;2 large eggs&#10;2 tbsp butter"></textarea>
+          </label>
+          <div class="row-inline">
+            <label class="field" style="flex:1">Servings in the recipe
+              <input id="servings-input" type="number" min="1" max="100" step="1" value="1">
+            </label>
+            <button type="submit" class="primary" id="recipe-btn">Calculate</button>
+          </div>
+        </form>
+
+        <p class="status" id="recipe-status" aria-live="polite"></p>
+        <ul class="lines" id="lines"></ul>
+      </div>
     </div>
 
     <div class="label-col">
@@ -432,7 +467,8 @@ function renderLabel(label) {
   root.append(el('h2', null, 'Nutrition Facts'));
   /* servingsPerContainer is optional: a single food has no container count */
   if (label.servingsPerContainer) {
-    root.append(el('div', 'servings', label.servingsPerContainer + ' servings per container'));
+    root.append(el('div', 'servings', label.servingsPerContainer + (label.servingsPerContainer === 1
+      ? ' serving per container' : ' servings per container')));
   }
 
   /* An empty servingSize means there is no household measure, so show grams only */
@@ -577,9 +613,226 @@ function describeError(err) {
   return 'Could not reach USDA. Check your connection.';
 }
 
+/* ---------- Recipe logic (no DOM) ---------- */
+
+const USDA_FOOD_URL = 'https://api.nal.usda.gov/fdc/v1/food';
+const MAX_RECIPE_LINES = 40;
+const UNICODE_FRACTIONS = {
+  '½': 0.5, '¼': 0.25, '¾': 0.75, '⅓': 1 / 3, '⅔': 2 / 3, '⅛': 0.125
+};
+
+/* Unit descriptions: weights know their grams, volumes know their millilitres */
+function weightUnit(gramsPerUnit) { return { kind: 'weight', gramsPerUnit: gramsPerUnit }; }
+function volumeUnit(canon, mlPerUnit) { return { kind: 'volume', canon: canon, mlPerUnit: mlPerUnit }; }
+
+const FL_OZ = volumeUnit('floz', 29.5735);
+const CUP = volumeUnit('cup', 236.588);
+const TBSP = volumeUnit('tbsp', 14.7868);
+const TSP = volumeUnit('tsp', 4.92892);
+const MILLILITRE = volumeUnit('ml', 1);
+const LITRE = volumeUnit('l', 1000);
+
+/* Words a person might type for a unit. Null-prototype so words like "constructor" are not found. */
+const UNIT_TABLE = Object.assign(Object.create(null), {
+  g: weightUnit(1), gram: weightUnit(1), grams: weightUnit(1),
+  kg: weightUnit(1000), kilogram: weightUnit(1000), kilograms: weightUnit(1000),
+  oz: weightUnit(28.3495), ounce: weightUnit(28.3495), ounces: weightUnit(28.3495),
+  lb: weightUnit(453.592), lbs: weightUnit(453.592), pound: weightUnit(453.592), pounds: weightUnit(453.592),
+  cup: CUP, cups: CUP,
+  tbsp: TBSP, tbs: TBSP, tablespoon: TBSP, tablespoons: TBSP,
+  tsp: TSP, teaspoon: TSP, teaspoons: TSP,
+  ml: MILLILITRE, milliliter: MILLILITRE, milliliters: MILLILITRE, millilitre: MILLILITRE, millilitres: MILLILITRE,
+  l: LITRE, liter: LITRE, liters: LITRE, litre: LITRE, litres: LITRE
+});
+
+/* Counted units that USDA lists as portions ("slice", "clove"), mapped to one singular word */
+const COUNT_UNIT_WORDS = Object.assign(Object.create(null), {
+  slice: 'slice', slices: 'slice', clove: 'clove', cloves: 'clove',
+  piece: 'piece', pieces: 'piece', stick: 'stick', sticks: 'stick', can: 'can', cans: 'can'
+});
+
+const SIZE_WORDS = ['small', 'medium', 'large'];
+
+/* Reads a leading quantity such as "2", "0.5", "1/2", "1 1/2" or a fraction glyph; returns { value, rest } or null */
+function parseAmount(text) {
+  let m = text.match(/^(\d+)\s+(\d+)\/(\d+)\s*/);
+  if (m && Number(m[3]) !== 0) {
+    return { value: Number(m[1]) + Number(m[2]) / Number(m[3]), rest: text.slice(m[0].length) };
+  }
+  m = text.match(/^(\d+)?\s*([½¼¾⅓⅔⅛])\s*/);
+  if (m) {
+    return { value: (m[1] ? Number(m[1]) : 0) + UNICODE_FRACTIONS[m[2]], rest: text.slice(m[0].length) };
+  }
+  m = text.match(/^(\d+)\/(\d+)\s*/);
+  if (m && Number(m[2]) !== 0) {
+    return { value: Number(m[1]) / Number(m[2]), rest: text.slice(m[0].length) };
+  }
+  m = text.match(/^(\d*\.?\d+)\s*/);
+  if (m) return { value: Number(m[1]), rest: text.slice(m[0].length) };
+  return null;
+}
+
+/* Splits one ingredient line into amount, unit, size word and a search name.
+   Returns { raw, error } when the line cannot be understood. */
+function parseIngredientLine(raw) {
+  const text = raw.trim().replace(/^[-*•]\s*/, '');
+  const amt = parseAmount(text);
+  if (!amt || !(amt.value > 0)) {
+    return { raw: raw, error: 'No amount found. Start the line with a quantity, like "2 cups flour".' };
+  }
+  const words = amt.rest.trim().split(/\s+/).filter(Boolean);
+  const clean = w => (w || '').toLowerCase().replace(/[.,]$/, '');
+  const w0 = clean(words[0]);
+  const w1 = clean(words[1]);
+  let unit = null;
+  let size = null;
+  let consumed = 0;
+  if (w0 === 'fl' && w1 === 'oz') { unit = FL_OZ; consumed = 2; }
+  else if (w0 === 'fluid' && (w1 === 'ounce' || w1 === 'ounces')) { unit = FL_OZ; consumed = 2; }
+  else if (UNIT_TABLE[w0]) { unit = UNIT_TABLE[w0]; consumed = 1; }
+  else if (COUNT_UNIT_WORDS[w0]) { unit = { kind: 'count', canon: COUNT_UNIT_WORDS[w0] }; consumed = 1; }
+  else if (SIZE_WORDS.indexOf(w0) !== -1) { size = w0; consumed = 1; }
+  const name = words.slice(consumed).join(' ')
+    .replace(/^of\s+/i, '')
+    .replace(/\([^)]*\)/g, '')
+    .split(',')[0]
+    .trim();
+  if (!name) return { raw: raw, error: 'No ingredient name found.' };
+  return { raw: raw, amount: amt.value, unit: unit, size: size, name: name };
+}
+
+/* Returns the volume unit a portion description starts with ("cup, chopped" -> cup), or null */
+function leadingVolumeUnit(text) {
+  if (/^(fl\.? ?oz|fluid ounces?)\b/.test(text)) return FL_OZ;
+  const first = text.split(/[\s,(]+/)[0];
+  const u = UNIT_TABLE[first];
+  return u && u.kind === 'volume' ? u : null;
+}
+
+/* True when a portion description starts with a weight unit ("oz", "g") */
+function startsWithWeight(text) {
+  const u = UNIT_TABLE[text.split(/[\s,(]+/)[0]];
+  return !!(u && u.kind === 'weight');
+}
+
+/* Simplifies USDA foodPortions into { text, gramsPer } (grams for one unit).
+   SR Legacy puts the whole measure in "modifier"; Foundation splits unit and qualifier. */
+function normalizePortions(rawPortions) {
+  const out = [];
+  (rawPortions || []).forEach(p => {
+    const amount = p.amount > 0 ? p.amount : 1;
+    const unitName = p.measureUnit && p.measureUnit.name && p.measureUnit.name !== 'undetermined'
+      ? p.measureUnit.name : '';
+    const text = [unitName, p.modifier, p.portionDescription].filter(Boolean).join(' ').toLowerCase().trim();
+    const gramsPer = p.gramWeight / amount;
+    if (text && gramsPer > 0 && isFinite(gramsPer)) out.push({ text: text, gramsPer: gramsPer });
+  });
+  return out;
+}
+
+/* From a list of portions, prefers one whose description is just the unit word (plain "cup") */
+function preferPlain(list) {
+  return list.find(p => p.text.split(/[\s,(]+/).length === 1) || list[0];
+}
+
+/* Works out how many grams a parsed ingredient weighs, using the food's portions when needed.
+   Returns { grams, note } or { error }. */
+function resolveGrams(item, portions) {
+  const unit = item.unit;
+  if (unit && unit.kind === 'weight') {
+    return { grams: item.amount * unit.gramsPerUnit, note: 'Converted from weight.' };
+  }
+
+  if (unit && unit.kind === 'volume') {
+    const vols = portions.map(p => ({ p: p, u: leadingVolumeUnit(p.text) })).filter(x => x.u);
+    if (!vols.length) return { error: 'No volume measure for this food. Enter grams.' };
+    const same = vols.filter(x => x.u === unit);
+    const plain = vols.filter(x => x.p.text.split(/[\s,(]+/).length === 1);
+    let pick;
+    if (same.length) pick = preferPlain(same.map(x => x.p));
+    else if (plain.length) pick = plain[0].p;
+    else pick = vols[0].p;
+    const pickUnit = vols.find(x => x.p === pick).u;
+    const gramsPerMl = pick.gramsPer / pickUnit.mlPerUnit;
+    return {
+      grams: item.amount * unit.mlPerUnit * gramsPerMl,
+      note: 'Using "' + pick.text + '" = ' + formatNumber(pick.gramsPer) + ' g.'
+    };
+  }
+
+  if (unit && unit.kind === 'count') {
+    const re = new RegExp('\\b' + unit.canon + 's?\\b');
+    const found = portions.filter(p => re.test(p.text));
+    if (!found.length) return { error: 'No "' + unit.canon + '" measure for this food. Enter grams.' };
+    const pick = found.find(p => p.text.indexOf(unit.canon) === 0) || found[0];
+    return { grams: item.amount * pick.gramsPer, note: 'Using "' + pick.text + '" = ' + formatNumber(pick.gramsPer) + ' g.' };
+  }
+
+  /* No unit: a count of whole items, optionally with a size word (2 large eggs) */
+  const items = portions.filter(p => !leadingVolumeUnit(p.text) && !startsWithWeight(p.text));
+  if (!items.length) return { error: 'No unit measure for this food. Enter grams.' };
+  let pick = null;
+  const wanted = item.size ? [item.size] : ['medium', 'large'];
+  wanted.forEach(word => {
+    if (pick) return;
+    pick = items.find(p => p.text.indexOf(word) === 0) ||
+           items.find(p => new RegExp('\\b' + word + '\\b').test(p.text)) || null;
+  });
+  if (!pick) pick = items[0];
+  return { grams: item.amount * pick.gramsPer, note: 'Using "' + pick.text + '" = ' + formatNumber(pick.gramsPer) + ' g each.' };
+}
+
+/* Adds up the counted ingredients and divides by servings; returns label data.
+   A nutrient is null (no data) if any counted ingredient lacks it. */
+function buildRecipeLabel(entries, servings) {
+  const totalGrams = entries.reduce((sum, e) => sum + e.grams, 0);
+  const sumOf = key => {
+    let total = 0;
+    for (const e of entries) {
+      const v = e.food.per100g[key];
+      if (v === null) return null;
+      total += v * e.grams / 100;
+    }
+    return total / servings;
+  };
+  const nutrients = {};
+  Object.keys(NUTRIENT_UNITS).forEach(key => {
+    nutrients[key] = { amount: sumOf(key), unit: NUTRIENT_UNITS[key] };
+  });
+  return {
+    servingsPerContainer: servings,
+    servingSize: '1 serving',
+    servingGrams: Math.round(totalGrams / servings),
+    calories: sumOf('calories'),
+    nutrients: nutrients
+  };
+}
+
+/* Fetches (and remembers) a food's portions from the USDA detail endpoint */
+const portionCache = new Map();
+async function fetchPortions(fdcId, apiKey) {
+  if (portionCache.has(fdcId)) return portionCache.get(fdcId);
+  const res = await fetch(USDA_FOOD_URL + '/' + fdcId + '?' + new URLSearchParams({ api_key: apiKey }).toString());
+  if (!res.ok) {
+    const err = new Error('HTTP ' + res.status);
+    err.status = res.status;
+    throw err;
+  }
+  const data = await res.json();
+  const portions = normalizePortions(data.foodPortions);
+  portionCache.set(fdcId, portions);
+  return portions;
+}
+
+/* True for errors that should stop the whole run (bad key, rate limit, no connection) */
+function isFatalLookupError(err) {
+  return !err.status || err.status === 400 || err.status === 403 || err.status === 429;
+}
+
 /* ---------- Page state ---------- */
 
 const state = {
+  mode: 'single',
   apiKey: loadSavedKey(),
   results: [],
   selected: null,
@@ -587,6 +840,59 @@ const state = {
   label: SAMPLE_LABEL,
   sourceText: 'Sample data. Search for a food to replace it.'
 };
+
+/* Recipe-mode state: one entry per ingredient line, plus the computed label */
+const recipe = { servings: 1, lines: [], nextId: 1, label: null, sourceText: '', counted: 0 };
+
+/* Creates the state for one ingredient line (not yet looked up) */
+function makeLine(raw) {
+  return {
+    id: recipe.nextId++, raw: raw, parsed: parseIngredientLine(raw),
+    candidates: [], selected: 0, gramsOverride: null, grams: null, note: '', error: ''
+  };
+}
+
+/* Works out one line's grams from the chosen USDA match (fetching portions if needed).
+   Throws only for fatal errors; other problems are written onto the line. */
+async function resolveLine(line) {
+  line.grams = null;
+  line.note = '';
+  line.error = '';
+  if (line.parsed.error) { line.error = line.parsed.error; return; }
+  const food = line.candidates[line.selected];
+  if (!food) { line.error = 'No USDA match. Try a simpler name.'; return; }
+  if (line.gramsOverride) {
+    line.grams = line.gramsOverride;
+    line.note = 'Grams entered by you.';
+    return;
+  }
+  const needsPortions = !(line.parsed.unit && line.parsed.unit.kind === 'weight');
+  let portions = [];
+  if (needsPortions) {
+    try {
+      portions = await fetchPortions(food.fdcId, state.apiKey);
+    } catch (err) {
+      if (isFatalLookupError(err)) throw err;
+      line.error = 'Could not load measures for this food. Enter grams.';
+      return;
+    }
+  }
+  const result = resolveGrams(line.parsed, portions);
+  if (result.error) line.error = result.error;
+  else { line.grams = result.grams; line.note = result.note; }
+}
+
+/* Rebuilds the recipe label from the lines that have a match and grams */
+function recomputeRecipe() {
+  const entries = recipe.lines
+    .filter(l => !l.error && l.grams > 0 && l.candidates[l.selected])
+    .map(l => ({ food: l.candidates[l.selected], grams: l.grams }));
+  recipe.counted = entries.length;
+  if (!entries.length) { recipe.label = null; recipe.sourceText = ''; return; }
+  recipe.label = buildRecipeLabel(entries, recipe.servings);
+  recipe.sourceText = 'Recipe label per serving (' + recipe.servings + ' servings). ' +
+    entries.length + ' of ' + recipe.lines.length + ' ingredients counted. Source: USDA FoodData Central.';
+}
 
 /* Rebuilds the label from the selected food and current grams */
 function applySelection() {
@@ -609,7 +915,17 @@ const ui = {
   searchStatus: document.getElementById('search-status'),
   results: document.getElementById('results'),
   labelMount: document.getElementById('label-mount'),
-  sourceNote: document.getElementById('source-note')
+  sourceNote: document.getElementById('source-note'),
+  tabSingle: document.getElementById('tab-single'),
+  tabRecipe: document.getElementById('tab-recipe'),
+  panelSingle: document.getElementById('panel-single'),
+  panelRecipe: document.getElementById('panel-recipe'),
+  recipeForm: document.getElementById('recipe-form'),
+  recipeInput: document.getElementById('recipe-input'),
+  servingsInput: document.getElementById('servings-input'),
+  recipeBtn: document.getElementById('recipe-btn'),
+  recipeStatus: document.getElementById('recipe-status'),
+  lines: document.getElementById('lines')
 };
 
 /* Shows a message in a status line, styled as an error when asked */
@@ -618,10 +934,27 @@ function setStatus(node, text, isError) {
   node.className = 'status' + (isError ? ' error' : '');
 }
 
-/* Redraws the label and its source note from state */
+/* Redraws the label and its source note for the active mode */
 function drawLabel() {
-  ui.labelMount.replaceChildren(renderLabel(state.label));
-  ui.sourceNote.textContent = state.sourceText;
+  let label = state.label;
+  let note = state.sourceText;
+  if (state.mode === 'recipe') {
+    label = recipe.label || SAMPLE_LABEL;
+    note = recipe.label ? recipe.sourceText : 'Sample data. Add ingredients and press Calculate.';
+  }
+  ui.labelMount.replaceChildren(renderLabel(label));
+  ui.sourceNote.textContent = note;
+}
+
+/* Switches between the single-food and recipe panels */
+function setMode(mode) {
+  state.mode = mode;
+  const isRecipe = mode === 'recipe';
+  ui.panelSingle.hidden = isRecipe;
+  ui.panelRecipe.hidden = !isRecipe;
+  ui.tabSingle.setAttribute('aria-selected', String(!isRecipe));
+  ui.tabRecipe.setAttribute('aria-selected', String(isRecipe));
+  drawLabel();
 }
 
 /* Redraws the list of search matches, marking the selected one */
@@ -701,6 +1034,127 @@ ui.gramsInput.addEventListener('input', () => {
   applySelection();
   drawLabel();
 });
+
+/* ---------- Recipe wiring (DOM) ---------- */
+
+/* Builds the review card for one ingredient line: match picker, grams box, note or error */
+function renderLineCard(line) {
+  const item = el('li', 'card stack');
+  item.append(el('span', 'raw', line.raw));
+
+  if (line.candidates.length) {
+    const matchLabel = el('label', 'field', 'USDA match');
+    const select = el('select');
+    line.candidates.forEach((food, i) => {
+      const option = el('option', null, food.description + ' (' + food.dataType + ')');
+      option.value = String(i);
+      select.append(option);
+    });
+    select.value = String(line.selected);
+    select.addEventListener('change', () => {
+      line.selected = Number(select.value);
+      reresolveLine(line);
+    });
+    matchLabel.append(select);
+
+    const gramsLabel = el('label', 'field', 'Grams');
+    const gramsBox = el('input');
+    gramsBox.type = 'number';
+    gramsBox.min = '0';
+    gramsBox.step = 'any';
+    gramsBox.placeholder = 'enter grams';
+    gramsBox.value = line.grams ? formatNumber(line.grams) : '';
+    gramsBox.addEventListener('change', () => {
+      const v = Number(gramsBox.value);
+      line.gramsOverride = v > 0 ? v : null;
+      reresolveLine(line);
+    });
+    gramsLabel.append(gramsBox);
+    item.append(matchLabel, gramsLabel);
+  }
+
+  const message = line.error || line.note;
+  if (message) item.append(el('p', 'status' + (line.error ? ' error' : ''), message));
+  return item;
+}
+
+/* Redraws all ingredient review cards */
+function drawLines() {
+  ui.lines.replaceChildren(...recipe.lines.map(renderLineCard));
+}
+
+/* Recomputes the recipe label and redraws cards, label and the summary line */
+function refreshRecipe() {
+  recomputeRecipe();
+  drawLines();
+  drawLabel();
+  const total = recipe.lines.length;
+  const left = total - recipe.counted;
+  if (total === 0) setStatus(ui.recipeStatus, '', false);
+  else if (left > 0) {
+    setStatus(ui.recipeStatus, left + ' of ' + total + ' ingredients need attention and are left out. The label is incomplete.', true);
+  } else setStatus(ui.recipeStatus, 'All ' + total + ' ingredients counted. Check each match below.', false);
+}
+
+/* Re-resolves one line after the person changed its match or grams, then refreshes */
+async function reresolveLine(line) {
+  try {
+    await resolveLine(line);
+  } catch (err) {
+    setStatus(ui.recipeStatus, describeError(err), true);
+    return;
+  }
+  refreshRecipe();
+}
+
+/* Looks up every ingredient line when the recipe form is submitted */
+ui.recipeForm.addEventListener('submit', async event => {
+  event.preventDefault();
+  const rawLines = ui.recipeInput.value.split('\n').map(s => s.trim()).filter(Boolean);
+  if (!rawLines.length) { setStatus(ui.recipeStatus, 'Enter at least one ingredient.', true); return; }
+  if (rawLines.length > MAX_RECIPE_LINES) {
+    setStatus(ui.recipeStatus, 'Limit is ' + MAX_RECIPE_LINES + ' ingredients per recipe.', true);
+    return;
+  }
+  if (!state.apiKey) {
+    ui.keyBox.open = true;
+    setStatus(ui.recipeStatus, 'Add your USDA API key first.', true);
+    return;
+  }
+  const servings = Number(ui.servingsInput.value);
+  recipe.servings = servings >= 1 ? servings : 1;
+  ui.recipeBtn.disabled = true;
+  recipe.lines = [];
+  recomputeRecipe();
+  drawLines();
+  drawLabel();
+  try {
+    for (let i = 0; i < rawLines.length; i++) {
+      setStatus(ui.recipeStatus, 'Looking up ' + (i + 1) + ' of ' + rawLines.length + '...', false);
+      const line = makeLine(rawLines[i]);
+      if (!line.parsed.error) line.candidates = await searchFoods(line.parsed.name, state.apiKey);
+      await resolveLine(line);
+      recipe.lines.push(line);
+    }
+  } catch (err) {
+    setStatus(ui.recipeStatus, describeError(err), true);
+    return;
+  } finally {
+    ui.recipeBtn.disabled = false;
+  }
+  refreshRecipe();
+});
+
+/* Rescales the recipe label when the servings count changes */
+ui.servingsInput.addEventListener('input', () => {
+  const servings = Number(ui.servingsInput.value);
+  if (!(servings >= 1 && servings <= 100)) return;
+  recipe.servings = servings;
+  if (recipe.lines.length) refreshRecipe();
+});
+
+ui.tabSingle.addEventListener('click', () => setMode('single'));
+ui.tabRecipe.addEventListener('click', () => setMode('recipe'));
 
 /* ---------- Start ---------- */
 

@@ -26,6 +26,14 @@ GitHub Pages, served straight from `main`.
   computed from the unrounded amounts. Nutrients USDA has no data for show a dash with no
   percent instead of a false 0.
 
+- v0.04: Recipe tab. Paste ingredient lines such as `200 g cheddar`, `1 1/2 cups flour`,
+  `2 large eggs` or `3 cloves garlic`, set the number of servings, and press Calculate. Each
+  line is matched to a USDA food and converted to grams (weights directly; cups, spoons and
+  counts through USDA portion data). Every line gets a review card where you can swap the
+  USDA match or type grams yourself. Lines that cannot be converted are left out of the
+  totals and the label is marked incomplete. A nutrient shows a dash if any counted
+  ingredient lacks it. Cooking losses are ignored, and recipes are not saved.
+
 ## Not for regulatory use
 This is a hobby tool. USDA averages and a simplified rounding table are not a substitute
 for lab analysis or a compliant label. Some rounding rules were taken from a secondary
