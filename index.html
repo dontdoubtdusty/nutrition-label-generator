@@ -6,7 +6,7 @@
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#ecfb9e" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#232b10" media="(prefers-color-scheme: dark)">
-<title>Nutrition Label Creator v0.07</title>
+<title>Nutrition Label Creator v0.08</title>
 <style>
   /* Page theme tokens; follow the system light/dark setting.
      Light: lime-to-sky gradient page, cream cards, dark pill buttons.
@@ -448,7 +448,7 @@
     <span class="pill pill-lilac">Label</span>
     <span class="pill pill-peach">Creator</span>
   </h1>
-  <p class="tagline"><span class="chip version">v0.07</span> Look up a food, get the label.</p>
+  <p class="tagline"><span class="chip version">v0.08</span> Look up a food, get the label.</p>
 </header>
 <main>
   <div class="layout">
@@ -976,14 +976,15 @@ function parseAmount(text) {
   return null;
 }
 
-/* Splits one ingredient line into amount, unit, size word and a search name.
-   Returns { raw, error } when the line cannot be understood. */
-function parseIngredientLine(raw) {
-  const text = raw.trim().replace(/^[-*•]\s*/, '');
+/* Words that describe the state of an ingredient, not what it is. They are dropped from the
+   USDA search text ("hot water" searches for "water"); the person's own line is left as typed. */
+const PREP_WORDS = /\b(hot|cold|warm|lukewarm|boiling|melted|softened|sifted|unsifted|packed|heaping|level|scant)\b/gi;
+
+/* Reads one "amount unit" term from the start of the text, such as "1 1/2 cups" or "2 large".
+   Returns { amount, unit, size, rest } where rest is the text after the unit, or null if there is no amount. */
+function readTerm(text) {
   const amt = parseAmount(text);
-  if (!amt || !(amt.value > 0)) {
-    return { raw: raw, error: 'No amount found. Start the line with a quantity, like "2 cups flour".' };
-  }
+  if (!amt || !(amt.value > 0)) return null;
   const words = amt.rest.trim().split(/\s+/).filter(Boolean);
   const clean = w => (w || '').toLowerCase().replace(/[.,]$/, '');
   const w0 = clean(words[0]);
@@ -996,13 +997,49 @@ function parseIngredientLine(raw) {
   else if (UNIT_TABLE[w0]) { unit = UNIT_TABLE[w0]; consumed = 1; }
   else if (COUNT_UNIT_WORDS[w0]) { unit = { kind: 'count', canon: COUNT_UNIT_WORDS[w0] }; consumed = 1; }
   else if (SIZE_WORDS.indexOf(w0) !== -1) { size = w0; consumed = 1; }
-  const name = words.slice(consumed).join(' ')
+  return { amount: amt.value, unit: unit, size: size, rest: words.slice(consumed).join(' ') };
+}
+
+/* Splits one ingredient line into amount, unit, size word and a search name.
+   Handles added amounts of the same kind ("1 Tablespoon + 2 teaspoons"): they are summed
+   and expressed in the first unit. Returns { raw, error } when the line cannot be understood. */
+function parseIngredientLine(raw) {
+  const text = raw.trim().replace(/^[-*•]\s*/, '');
+  const first = readTerm(text);
+  if (!first) {
+    return { raw: raw, error: 'No amount found. Start the line with a quantity, like "2 cups flour".' };
+  }
+  let amount = first.amount;
+  let rest = first.rest;
+
+  /* "+ 2 teaspoons": add each extra term, converting through millilitres or grams */
+  if (/^(\+|plus)\s/i.test(rest)) {
+    const kind = first.unit && first.unit.kind;
+    if (kind !== 'volume' && kind !== 'weight') {
+      return { raw: raw, error: 'Adding amounts only works for weights or volumes. Split it into two lines.' };
+    }
+    const perUnit = u => u.kind === 'volume' ? u.mlPerUnit : u.gramsPerUnit;
+    let total = first.amount * perUnit(first.unit);
+    while (/^(\+|plus)\s/i.test(rest)) {
+      const next = readTerm(rest.replace(/^(\+|plus)\s+/i, ''));
+      if (!next || !next.unit || next.unit.kind !== kind) {
+        return { raw: raw, error: 'Could not add the amounts. Use the same kind of unit on both sides of "+", or split it into two lines.' };
+      }
+      total += next.amount * perUnit(next.unit);
+      rest = next.rest;
+    }
+    amount = total / perUnit(first.unit);
+  }
+
+  const name = rest
     .replace(/^of\s+/i, '')
     .replace(/\([^)]*\)/g, '')
     .split(',')[0]
+    .replace(PREP_WORDS, ' ')
+    .replace(/\s+/g, ' ')
     .trim();
   if (!name) return { raw: raw, error: 'No ingredient name found.' };
-  return { raw: raw, amount: amt.value, unit: unit, size: size, name: name };
+  return { raw: raw, amount: amount, unit: first.unit, size: first.size, name: name };
 }
 
 /* Returns the volume unit a portion description starts with ("cup, chopped" -> cup), or null */

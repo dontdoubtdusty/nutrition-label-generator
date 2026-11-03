@@ -55,6 +55,10 @@ GitHub Pages, served straight from `main`.
   file, so it works in any browser with no network. Live camera needs HTTPS (GitHub Pages) and the
   camera permission; the camera is turned off when you leave the tab or the page. No saved data.
 
+- v0.08: Recipe parser fixes. Added amounts of the same kind are summed (`1 Tablespoon + 2 teaspoons
+  baking powder`). State words such as hot, melted, sifted, packed and heaping are dropped from the
+  USDA search text (`1 cup hot water` searches for "water"); your line is shown as typed.
+
 ## Not for regulatory use
 This is a hobby tool. USDA averages and a simplified rounding table are not a substitute
 for lab analysis or a compliant label. Some rounding rules were taken from a secondary
