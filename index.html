@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Nutrition Label Creator v0.02</title>
+<title>Nutrition Label Creator v0.03</title>
 <style>
   /* Page theme tokens; follows the system light/dark setting */
   :root {
@@ -193,7 +193,7 @@
 <body>
 <header>
   <h1>Nutrition Label Creator</h1>
-  <span class="version">v0.02</span>
+  <span class="version">v0.03</span>
 </header>
 <main>
   <div class="layout">
@@ -268,8 +268,10 @@ const MICRO_LAYOUT = [
 ];
 
 /* Sample label data. This is the shared data shape that lookups and recipe math
-   will produce later: flat nutrient map of { amount, unit } plus serving info.
-   Any change to this shape must be flagged before it is made. */
+   produce: a flat nutrient map of { amount, unit } plus serving info. Amounts and
+   calories are actual (unrounded) values; rounding happens only when drawing.
+   An amount or calories of null means "no data". Any change to this shape must be
+   flagged before it is made. */
 const SAMPLE_LABEL = {
   servingsPerContainer: 8,
   servingSize: '2/3 cup',
@@ -300,34 +302,93 @@ function formatNumber(value) {
   return String(Math.round(value * 10) / 10);
 }
 
-/* Returns the percent Daily Value as a whole number, or null if there is no DV */
+/* Shown in place of an amount when USDA has no data for it */
+const NO_DATA = '—';
+
+/* Nutrients whose percent Daily Value is rounded in 2% / 5% / 10% steps */
+const VITAMIN_MINERAL_KEYS = ['vitaminD', 'calcium', 'iron', 'potassium'];
+
+/* Rounds a value to the nearest multiple of step */
+function roundTo(value, step) {
+  return Math.round(value / step) * step;
+}
+
+/* Rounds calories the FDA way: 0 under 5, nearest 5 up to 50, nearest 10 above */
+function roundCalories(value) {
+  if (value < 5) return 0;
+  if (value <= 50) return roundTo(value, 5);
+  return roundTo(value, 10);
+}
+
+/* Rounds one nutrient amount the FDA way and returns display text with its unit.
+   Vitamin D, calcium, iron and potassium increments come from a secondary source. */
+function roundNutrient(key, amount, unit) {
+  let v;
+  switch (key) {
+    case 'totalFat': case 'satFat': case 'transFat':
+      v = amount < 0.5 ? 0 : (amount < 5 ? roundTo(amount, 0.5) : roundTo(amount, 1));
+      break;
+    case 'cholesterol':
+      if (amount < 2) { v = 0; break; }
+      if (amount <= 5) return 'less than 5' + unit;
+      v = roundTo(amount, 5);
+      break;
+    case 'sodium':
+      v = amount < 5 ? 0 : (amount <= 140 ? roundTo(amount, 5) : roundTo(amount, 10));
+      break;
+    case 'totalCarbs': case 'fiber': case 'totalSugars': case 'addedSugars':
+      if (amount < 0.5) { v = 0; break; }
+      if (amount < 1) return 'less than 1' + unit;
+      v = roundTo(amount, 1);
+      break;
+    case 'protein':
+      v = amount < 0.5 ? 0 : roundTo(amount, 1);
+      break;
+    case 'vitaminD': v = roundTo(amount, 0.1); break;
+    case 'calcium':  v = roundTo(amount, 10);  break;
+    case 'iron':     v = roundTo(amount, 0.1); break;
+    case 'potassium': v = roundTo(amount, 10); break;
+    default: v = amount;
+  }
+  return formatNumber(v) + unit;
+}
+
+/* Returns the percent Daily Value from the unrounded amount, or null if there is no DV.
+   Most nutrients round to a whole percent; vitamins and minerals use 2/5/10 steps. */
 function percentDV(key, amount) {
   const dv = DAILY_VALUES[key];
   if (!dv) return null;
-  return Math.round((amount / dv) * 100);
+  const raw = (amount / dv) * 100;
+  if (VITAMIN_MINERAL_KEYS.indexOf(key) === -1) return Math.round(raw);
+  if (raw <= 10) return roundTo(raw, 2);
+  if (raw <= 50) return roundTo(raw, 5);
+  return roundTo(raw, 10);
 }
 
-/* Turns the label data into a flat list of display-ready rows */
+/* Turns the label data into a flat list of display-ready rows (rounded, with dashes for no data) */
 function buildRows(label) {
   const rows = ROW_LAYOUT.map(def => {
     const n = label.nutrients[def.key];
-    const amountText = formatNumber(n.amount) + n.unit;
-    const pct = def.dv ? percentDV(def.key, n.amount) : null;
+    const known = n.amount !== null;
+    const amountText = known ? roundNutrient(def.key, n.amount, n.unit) : NO_DATA;
+    const pct = known && def.dv ? percentDV(def.key, n.amount) : null;
+    const includesText = def.includes && known;
     return {
       level: def.level,
       bold: def.bold,
       italicName: !!def.italicName,
-      name: def.includes ? 'Includes ' + amountText + ' Added Sugars' : def.label,
-      amountText: def.includes ? '' : amountText,
+      name: includesText ? 'Includes ' + amountText + ' Added Sugars' : def.label,
+      amountText: includesText ? '' : amountText,
       percent: pct
     };
   });
   const micros = MICRO_LAYOUT.map(def => {
     const n = label.nutrients[def.key];
+    const known = n.amount !== null;
     return {
       name: def.label,
-      amountText: formatNumber(n.amount) + n.unit,
-      percent: percentDV(def.key, n.amount)
+      amountText: known ? roundNutrient(def.key, n.amount, n.unit) : NO_DATA,
+      percent: known ? percentDV(def.key, n.amount) : null
     };
   });
   return { rows, micros };
@@ -386,7 +447,8 @@ function renderLabel(label) {
   root.append(el('div', 'small-bold', 'Amount per serving'));
 
   const cal = el('div', 'calories');
-  cal.append(el('span', 'name', 'Calories'), el('span', 'value', String(label.calories)));
+  const calText = label.calories === null ? NO_DATA : String(roundCalories(label.calories));
+  cal.append(el('span', 'name', 'Calories'), el('span', 'value', calText));
   root.append(cal);
 
   root.append(el('div', 'bar-med'));
@@ -397,7 +459,7 @@ function renderLabel(label) {
   micros.forEach((row, i) => {
     const wrap = el('div', 'row' + (i === 0 ? ' first' : ''));
     wrap.append(el('span', null, row.name + ' ' + row.amountText),
-                el('span', null, row.percent + '%'));
+                el('span', null, row.percent === null ? '' : row.percent + '%'));
     root.append(wrap);
   });
 
@@ -455,14 +517,14 @@ function saveKey(key) {
 }
 
 /* Pulls the label nutrients out of a USDA foodNutrients list (values are per 100 g).
-   Nutrients USDA does not report are set to 0. */
+   Nutrients USDA does not report are set to null (unknown, not zero). */
 function extractPer100g(foodNutrients) {
   const byNumber = {};
   foodNutrients.forEach(n => { byNumber[String(n.nutrientNumber)] = n.value; });
   const result = {};
   Object.keys(NUTRIENT_SOURCES).forEach(key => {
     const found = NUTRIENT_SOURCES[key].find(num => typeof byNumber[num] === 'number');
-    result[key] = found ? byNumber[found] : 0;
+    result[key] = found ? byNumber[found] : null;
   });
   return result;
 }
@@ -495,13 +557,14 @@ function buildLabelFromFood(food, grams) {
   const factor = grams / 100;
   const nutrients = {};
   Object.keys(NUTRIENT_UNITS).forEach(key => {
-    nutrients[key] = { amount: food.per100g[key] * factor, unit: NUTRIENT_UNITS[key] };
+    const per100 = food.per100g[key];
+    nutrients[key] = { amount: per100 === null ? null : per100 * factor, unit: NUTRIENT_UNITS[key] };
   });
   return {
     servingsPerContainer: null,
     servingSize: '',
     servingGrams: grams,
-    calories: Math.round(food.per100g.calories * factor),
+    calories: food.per100g.calories === null ? null : food.per100g.calories * factor,
     nutrients: nutrients
   };
 }

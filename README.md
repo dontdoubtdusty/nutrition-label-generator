@@ -20,7 +20,16 @@ GitHub Pages, served straight from `main`.
   datasets). Search a food, pick a match, set a serving size in grams, and the label
   rescales. Needs a free USDA API key (https://fdc.nal.usda.gov/api-key-signup), pasted
   once into the key box and saved in this browser's localStorage under `nlc.usdaKey`.
-  The key is never written to the repo. USDA nutrients that are missing show as 0.
+  The key is never written to the repo.
+- v0.03: label values follow FDA rounding (calories, fats, cholesterol, sodium, carbs,
+  fiber, sugars, protein, and the vitamin and mineral amounts). Percent Daily Values are
+  computed from the unrounded amounts. Nutrients USDA has no data for show a dash with no
+  percent instead of a false 0.
+
+## Not for regulatory use
+This is a hobby tool. USDA averages and a simplified rounding table are not a substitute
+for lab analysis or a compliant label. Some rounding rules were taken from a secondary
+source and are listed as unverified in `claude/vision.md`.
 
 ## Docs
 - `claude/vision.md` - design doc

@@ -9,5 +9,7 @@ Session counter: 1
 - Decided: free personal USDA key in a localStorage settings field; single food lookup next.
 - Built v0.02: USDA single food lookup with mocked-API smoke tests (live USDA call not yet
   confirmed with a real key).
-- Next: confirm one live search with a real key; then decide FDA rounding and missing-nutrient
-  display; then recipe mode.
+- User loaded a real key; live results not reported back yet.
+- Built v0.03: FDA rounding at display, null amounts shown as dashes, vitamin percent steps.
+  Approved shape change: amount and calories may be null.
+- Next: user's live test results; verify the unverified rounding rules; then recipe mode.

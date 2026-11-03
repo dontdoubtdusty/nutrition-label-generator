@@ -25,6 +25,12 @@ recreation of the standard FDA Nutrition Facts label.
 3. Recipe mode: parse lines, convert units to grams, sum, divide by servings.
 4. Branded foods and household serving sizes (decide whether these are wanted).
 
+## Rounding and unknown data (v0.03)
+- Label data holds actual unrounded values; rounding happens only when drawing.
+- A nutrient `amount` (or `calories`) of null means "no data": shown as a dash, no percent.
+- Percent Daily Value is computed from the unrounded amount and rounded to a whole percent;
+  vitamin D, calcium, iron and potassium use 2% / 5% / 10% steps (the 2018 CFR text).
+
 ## Saved data
 - `nlc.usdaKey` in localStorage: the user's USDA API key (string). Nothing else is saved.
 
@@ -35,17 +41,20 @@ before it is made.
 - v0.02 change (approved): `servingsPerContainer` is optional (null hides the line).
 - v0.02 convention on an existing field: `servingSize` as an empty string means "no
   household measure", and the label shows grams only.
+- v0.03 change (approved): a nutrient `amount` may be null (no data). Also, `calories` may be
+  null, and label data now holds unrounded values (rounding moved to display).
 
 ## Open decisions (ask before building anything that touches these)
 - Unit conversion: turning tbsp, cups and pieces into grams needs USDA portion data,
   which is inconsistent. Riskiest part of recipe mode.
 - API key handling: the key is visible in page source on a static site. The shared
   DEMO_KEY is heavily rate-limited; a personal free key is better but is public once deployed.
-- FDA rounding rules: whether to apply the official rounding for displayed values. The
-  label currently shows unrounded values (for example Cholesterol 49.5mg), which a real label would not.
-- Missing nutrients: USDA generic foods often lack added sugars, trans fat or vitamin D. v0.02
-  shows them as 0, which can be wrong (unknown is not the same as zero). Alternatives: show a dash,
-  or mark estimated values.
+- Unverified rounding rules: the amount increments for vitamin D (0.1mcg), calcium (10mg), iron
+  (0.1mg) and potassium (10mg), and the cholesterol "less than 5mg" display, come from a secondary
+  source ( https://www.recipal.com/blog/labeling-rules-and-guidelines/fda-us-nutrition-label-rounding-rules ).
+  The 2% / 5% / 10% vitamin and mineral percent steps come from the 2018 CFR text and may have been
+  changed by the 2016 labeling rule. Confirm against the current 21 CFR 101.9 before trusting them.
+- Missing nutrients show a dash. Whether to estimate or hide those rows instead is undecided.
 - Daily Values: which set to use (current FDA 2016 set is the assumption).
 - Whether lookups are cached, and where (nothing is saved anywhere today).
 
