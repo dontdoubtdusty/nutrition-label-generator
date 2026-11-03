@@ -40,6 +40,14 @@ GitHub Pages, served straight from `main`.
   stores minerals and vitamins in grams; they are converted to mg and mcg. Missing fields show
   a dash. This is community-edited data: check it against the package.
 
+- v0.06: UI/UX overhaul. Pastel gradient page (lime to sky in light mode, deep olive-charcoal in
+  dark mode), cream rounded cards, pill buttons and chips, numbered ingredient cards, and the
+  embedded Bricolage Grotesque font (Latin subset, base64, no network needed). On phones the
+  modes are a dark floating bar at the bottom and the label sits right under the input form,
+  with results or review cards below it. On wide screens the tabs are a pill bar and the label
+  stays in view on the right. The label itself is unchanged (black on white, square corners).
+  No change to behavior, saved data or the label data shape.
+
 ## Not for regulatory use
 This is a hobby tool. USDA averages and a simplified rounding table are not a substitute
 for lab analysis or a compliant label. Some rounding rules were taken from a secondary

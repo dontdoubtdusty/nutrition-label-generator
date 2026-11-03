@@ -1,6 +1,6 @@
 # Session log
 
-Session counter: 1
+Session counter: 2
 
 ## Session 1 (2026-11-03)
 - Repo created and attached: dontdoubtdusty/nutrition-label-generator.
@@ -21,3 +21,12 @@ Session counter: 1
 - Next: user tries a real barcode on the deployed page (CORS unconfirmed); then (earlier note)
   user tries recipe mode live (portion matching is untested against real USDA data);
   then v0.05 packaged foods from Open Food Facts (needs a scope discussion); verify rounding rules.
+
+## Session 2 (2026-11-03)
+- Built v0.06: UI/UX overhaul from a pastel recipe-app reference. CSS and markup only; no JS,
+  saved-data or label-shape changes. Decisions: embed Bricolage Grotesque as base64; dark floating
+  bottom nav on phones; label first, review cards below; deep olive-charcoal dark mode.
+- Tested with mocked USDA and Open Food Facts at 375px and 1280px, light and dark: no console errors,
+  no horizontal overflow. Not tested on a real phone.
+- Requested: camera barcode scanning. Not built; reverses the v0.05 "no camera scanning" decision
+  and needs a decoding approach chosen (see Open decisions in vision.md). Planned as v0.07.

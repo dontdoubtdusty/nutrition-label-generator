@@ -25,7 +25,28 @@ recreation of the standard FDA Nutrition Facts label.
 2. v0.02 Single food lookup: USDA search, pick a match, serving size in grams. Done.
 3. v0.04 Recipe mode: parse lines, convert units to grams, sum, divide by servings. Done.
 4. v0.05 Packaged foods by barcode from Open Food Facts. Done.
-5. Phone layout: the label sits below a long list of review cards; consider a sticky or collapsible layout.
+5. v0.06 UI/UX overhaul (also fixes the phone layout: the label now sits under the input form,
+   review cards below it). Done.
+6. Barcode scanning with the camera (requested after v0.06). Needs a decoding approach decided
+   first; see Open decisions. Reverses the v0.05 "no camera scanning" decision.
+
+## Look and feel (v0.06)
+- Reference mood: playful pastel recipe app. Taken: gradient page, big rounded cards, pill chips
+  and buttons, chunky type, dark floating bottom nav. Not taken: food photos, ratings, favorites,
+  tilted phone mockups (this is a calculator, and there are no image assets).
+- The label is never restyled: black on white, square corners, in both themes. The page wraps
+  around it (a lilac "stage" card).
+- Light: lime-to-sky gradient, cream cards, dark pill primary buttons. Dark: deep olive-charcoal
+  gradient with the same lime, lilac and peach accents; lime primary buttons.
+- Font: Bricolage Grotesque (SIL OFL), Latin subset of the variable weight font, embedded as
+  base64 in its own style block at the end of the head (about 32 KB). Chosen over system fonts
+  so the look is identical everywhere and the file still needs no network.
+- Phones (under 860px): one column ordered key box, input form, status line, label, results or
+  review cards. Modes are a fixed dark bar at the bottom. Wide screens: two columns, tabs as a
+  pill bar above the form, label sticky on the right.
+- The USDA key box stays a collapsible card in the panel (it must open itself when a search
+  needs a key), instead of a header gear icon.
+- Icons are inline SVG. No emojis anywhere.
 
 ## Rounding and unknown data (v0.03)
 - Label data holds actual unrounded values; rounding happens only when drawing.
@@ -72,6 +93,11 @@ before it is made.
   null, and label data now holds unrounded values (rounding moved to display).
 
 ## Open decisions (ask before building anything that touches these)
+- Barcode scanning: the native BarcodeDetector works in Chrome on Android but is not on by
+  default in iPhone Safari or Firefox, and is missing on Windows and Linux desktop Chrome.
+  Options: a small hand-written EAN/UPC decoder (few KB, works everywhere, less forgiving of
+  blurry shots), inlining a full decoding library (best accuracy, hundreds of KB), or native
+  only with typing as the fallback. Undecided. Camera needs HTTPS (GitHub Pages is fine).
 - Unit conversion: turning tbsp, cups and pieces into grams needs USDA portion data,
   which is inconsistent. Riskiest part of recipe mode.
 - API key handling: the key is visible in page source on a static site. The shared
