@@ -48,6 +48,13 @@ GitHub Pages, served straight from `main`.
   stays in view on the right. The label itself is unchanged (black on white, square corners).
   No change to behavior, saved data or the label data shape.
 
+- v0.07: Barcode scanning. On the Barcode tab, Camera opens the live camera and reads the barcode
+  automatically; Photo reads a barcode from a photo you take or choose. Either one fills the number
+  box and runs the lookup. Typing the number still works. Reads EAN-13, EAN-8, UPC-A and UPC-E (UPC-E
+  is converted to UPC-A). The decoder is the UPC/EAN part of @zxing/library (MIT), embedded in the
+  file, so it works in any browser with no network. Live camera needs HTTPS (GitHub Pages) and the
+  camera permission; the camera is turned off when you leave the tab or the page. No saved data.
+
 ## Not for regulatory use
 This is a hobby tool. USDA averages and a simplified rounding table are not a substitute
 for lab analysis or a compliant label. Some rounding rules were taken from a secondary

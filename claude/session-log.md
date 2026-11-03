@@ -28,5 +28,10 @@ Session counter: 2
   bottom nav on phones; label first, review cards below; deep olive-charcoal dark mode.
 - Tested with mocked USDA and Open Food Facts at 375px and 1280px, light and dark: no console errors,
   no horizontal overflow. Not tested on a real phone.
-- Requested: camera barcode scanning. Not built; reverses the v0.05 "no camera scanning" decision
-  and needs a decoding approach chosen (see Open decisions in vision.md). Planned as v0.07.
+- Built v0.07: barcode scanning (live camera and photo), requested mid-session. Reverses the v0.05
+  "no camera scanning" decision. Decision: inline the UPC/EAN part of @zxing/library (about 60 KB)
+  instead of native BarcodeDetector (not on iPhone Safari) or a hand-written decoder. No shape change.
+- Tested with generated barcode images and Chrome's fake camera feed (32 checks), plus the earlier
+  smoke test. Not tested on a real phone.
+- Next: user tries scanning on a real phone on the deployed page; then the earlier open items
+  (real barcode lookup CORS, recipe mode on real USDA data, rounding rules).

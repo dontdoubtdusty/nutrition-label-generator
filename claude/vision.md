@@ -27,8 +27,7 @@ recreation of the standard FDA Nutrition Facts label.
 4. v0.05 Packaged foods by barcode from Open Food Facts. Done.
 5. v0.06 UI/UX overhaul (also fixes the phone layout: the label now sits under the input form,
    review cards below it). Done.
-6. Barcode scanning with the camera (requested after v0.06). Needs a decoding approach decided
-   first; see Open decisions. Reverses the v0.05 "no camera scanning" decision.
+6. v0.07 Barcode scanning (camera and photo). Done.
 
 ## Look and feel (v0.06)
 - Reference mood: playful pastel recipe app. Taken: gradient page, big rounded cards, pill chips
@@ -75,9 +74,23 @@ recreation of the standard FDA Nutrition Facts label.
 - Serving: the package serving_quantity (grams, at least 1) is the default grams; otherwise 100.
   The package serving text (parentheses removed, hidden if it is only grams) is shown only
   while the grams still equal the package serving.
-- Barcode input: 8 to 14 digits after removing spaces and hyphens. No camera scanning.
+- Barcode input: 8 to 14 digits after removing spaces and hyphens. Typing is always available.
 - The label data shape is unchanged. Nothing new is saved.
 - The USDA key box is hidden on the barcode tab.
+
+## Barcode scanning (v0.07)
+- Reverses the v0.05 "no camera scanning" decision, at the user's request.
+- Decoder: the UPC/EAN readers from @zxing/library 0.21.3 (MIT), bundled with esbuild once outside the
+  repo and pasted in as a third script block (about 60 KB). Chosen over the native BarcodeDetector
+  (missing in iPhone Safari, Firefox, and Windows/Linux Chrome) and over a hand-written decoder.
+  There is no build step in the project; to update the decoder, rebuild the bundle and replace the block.
+- Formats: EAN-13, EAN-8, UPC-A, UPC-E (converted to UPC-A for lookup). Other types are ignored.
+- Live camera: rear camera preferred, one frame checked every 150 ms at native video size. A hit stops
+  the camera, fills the number box and submits the existing barcode form (so lookup logic is unchanged).
+- Photo: any image; scaled so its long side is 1400 px (small photos are enlarged, which helps), then decoded.
+- The camera is released on Stop, on leaving the Barcode tab, when the page is hidden and on page hide.
+- Errors (blocked, no camera, busy, no HTTPS) show a short message pointing to Photo or typing.
+- Nothing is saved; no change to the label data shape.
 
 ## Saved data
 - `nlc.usdaKey` in localStorage: the user's USDA API key (string). Nothing else is saved.
@@ -93,11 +106,9 @@ before it is made.
   null, and label data now holds unrounded values (rounding moved to display).
 
 ## Open decisions (ask before building anything that touches these)
-- Barcode scanning: the native BarcodeDetector works in Chrome on Android but is not on by
-  default in iPhone Safari or Firefox, and is missing on Windows and Linux desktop Chrome.
-  Options: a small hand-written EAN/UPC decoder (few KB, works everywhere, less forgiving of
-  blurry shots), inlining a full decoding library (best accuracy, hundreds of KB), or native
-  only with typing as the fallback. Undecided. Camera needs HTTPS (GitHub Pages is fine).
+- Barcode scanning on real devices: tested only with Chrome's fake camera, generated barcode images
+  and mocked lookups. Real phones (focus, glare, curved packaging, iPhone Safari camera behavior) are
+  untested. Torch and zoom controls are not built.
 - Unit conversion: turning tbsp, cups and pieces into grams needs USDA portion data,
   which is inconsistent. Riskiest part of recipe mode.
 - API key handling: the key is visible in page source on a static site. The shared
