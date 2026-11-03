@@ -83,6 +83,9 @@ GitHub Pages, served straight from `main`.
   the rest of the label rows). Values are the same rounded ones the label prints; missing data is a
   dash. No saved data or label shape change.
 
+- v0.13: Copy text now puts each name and value on one line (`Calories 190`, `Sodium 160 mg`) instead
+  of two lines.
+
 ## Not for regulatory use
 This is a hobby tool. USDA averages and a simplified rounding table are not a substitute
 for lab analysis or a compliant label. Some rounding rules were taken from a secondary

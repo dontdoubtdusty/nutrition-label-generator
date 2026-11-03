@@ -6,7 +6,7 @@
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#ecfb9e" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#232b10" media="(prefers-color-scheme: dark)">
-<title>Nutrition Label Creator v0.12</title>
+<title>Nutrition Label Creator v0.13</title>
 <style>
   /* Page theme tokens; follow the system light/dark setting.
      Light: lime-to-sky gradient page, cream cards, dark pill buttons.
@@ -468,7 +468,7 @@
     <span class="pill pill-lilac">Label</span>
     <span class="pill pill-peach">Creator</span>
   </h1>
-  <p class="tagline"><span class="chip version">v0.12</span> Look up a food, get the label.</p>
+  <p class="tagline"><span class="chip version">v0.13</span> Look up a food, get the label.</p>
 </header>
 <main>
   <div class="layout">
@@ -871,16 +871,16 @@ function spaceUnit(text) {
   return text.replace(/(\d)(g|mg|mcg)$/, '$1 $2');
 }
 
-/* Builds the plain-text copy of a label: a name line, then its value line, for every item.
+/* Builds the plain-text copy of a label: one line per item, name then value ("Calories 190").
    Values are the same rounded ones the label prints; no data shows as a dash. */
 function buildLabelText(label) {
   const lines = [
-    'Calories', label.calories === null ? NO_DATA : String(roundCalories(label.calories)),
-    'Serving Size', servingText(label)
+    'Calories ' + (label.calories === null ? NO_DATA : String(roundCalories(label.calories))),
+    'Serving Size ' + servingText(label)
   ];
   TEXT_ROWS.forEach(row => {
     const n = label.nutrients[row.key];
-    lines.push(row.name, n.amount === null ? NO_DATA : spaceUnit(roundNutrient(row.key, n.amount, n.unit)));
+    lines.push(row.name + ' ' + (n.amount === null ? NO_DATA : spaceUnit(roundNutrient(row.key, n.amount, n.unit))));
   });
   return lines.join('\n');
 }

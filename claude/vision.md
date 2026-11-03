@@ -95,7 +95,7 @@ recreation of the standard FDA Nutrition Facts label.
 ## Label export (v0.12)
 - Two buttons under the label: Copy image and Copy text. Both export the label data currently shown
   (`shownLabel`), never the page, so they always match the label.
-- Text: one name line then one value line. Order is Calories, Serving Size, Carbohydrates, Protein, Fat,
+- Text: one line per item, name then value ("Calories 190"; changed from two lines in v0.13). Order is Calories, Serving Size, Carbohydrates, Protein, Fat,
   Sodium, Fiber, then Saturated Fat, Trans Fat, Cholesterol, Total Sugars, Added Sugars, Vitamin D, Calcium,
   Iron, Potassium. Values are the label's FDA-rounded values with a space before the unit ("61 g");
   unrounded numbers were rejected as false precision that would disagree with the label. Missing data is a

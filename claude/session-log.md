@@ -64,3 +64,4 @@ Session counter: 4
   (the only 404 was the test server's missing favicon). Not tested on a real phone or in real Safari.
 - Next: user tries both buttons on the deployed page, especially pasting the image on iPhone Safari;
   then the earlier open items (barcode CORS, phone scanning, recipe mode on real USDA data, rounding rules).
+- Built v0.13: Copy text puts name and value on one line ("Calories 190") instead of two. Tests updated and rerun.
