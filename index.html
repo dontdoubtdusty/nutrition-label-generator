@@ -3,19 +3,33 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Nutrition Label Creator v0.01</title>
+<title>Nutrition Label Creator v0.02</title>
 <style>
   /* Page theme tokens; follows the system light/dark setting */
   :root {
     --page-bg: #f3f1ec;
     --page-fg: #1a1a1a;
     --page-muted: #5b5b5b;
+    --card-bg: #ffffff;
+    --card-border: #cfcac0;
+    --input-bg: #ffffff;
+    --btn-bg: #f6f4ef;
+    --accent: #1f5f3f;
+    --accent-fg: #ffffff;
+    --error: #b3261e;
   }
   @media (prefers-color-scheme: dark) {
     :root {
       --page-bg: #16171a;
       --page-fg: #ececec;
       --page-muted: #a3a3ad;
+      --card-bg: #1f2024;
+      --card-border: #3a3b42;
+      --input-bg: #121316;
+      --btn-bg: #2a2b31;
+      --accent: #6fcf97;
+      --accent-fg: #0b1f14;
+      --error: #ff8a80;
     }
   }
 
@@ -105,16 +119,120 @@
     font-size: 0.7rem;
     line-height: 1.3;
   }
+
+  /* Page layout: controls panel beside the label on wide screens, stacked on phones */
+  .layout {
+    width: 100%;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 24px;
+    justify-content: center;
+    align-items: flex-start;
+  }
+  .panel {
+    flex: 1 1 300px;
+    max-width: 420px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .label-col {
+    flex: 0 1 320px;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+  }
+  .stack { display: flex; flex-direction: column; gap: 10px; }
+  .row-inline { display: flex; gap: 8px; align-items: flex-end; }
+
+  /* Cards, form fields and buttons */
+  .card {
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: 8px;
+    padding: 12px;
+  }
+  .field { display: flex; flex-direction: column; gap: 4px; font-size: 0.85rem; color: var(--page-muted); }
+  input[type="text"], input[type="password"], input[type="number"] {
+    font: inherit;
+    font-size: 1rem;
+    width: 100%;
+    min-width: 0;
+    padding: 8px 10px;
+    border: 1px solid var(--card-border);
+    border-radius: 6px;
+    background: var(--input-bg);
+    color: var(--page-fg);
+  }
+  button {
+    font: inherit;
+    font-size: 1rem;
+    padding: 8px 14px;
+    border: 1px solid var(--card-border);
+    border-radius: 6px;
+    background: var(--btn-bg);
+    color: var(--page-fg);
+    cursor: pointer;
+  }
+  button.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); font-weight: 600; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  details summary { cursor: pointer; font-size: 0.9rem; }
+  details[open] summary { margin-bottom: 10px; }
+
+  /* Status line and search results */
+  .status { margin: 0; font-size: 0.85rem; min-height: 1.2em; color: var(--page-muted); }
+  .status.error { color: var(--error); }
+  .results { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+  .results button { width: 100%; text-align: left; display: flex; flex-direction: column; gap: 2px; }
+  .results .meta { font-size: 0.75rem; color: var(--page-muted); }
+  .results button[aria-current="true"] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 </style>
 </head>
 <body>
 <header>
   <h1>Nutrition Label Creator</h1>
-  <span class="version">v0.01</span>
+  <span class="version">v0.02</span>
 </header>
 <main>
-  <section id="label-mount" aria-label="Nutrition Facts label" style="width:100%;display:flex;justify-content:center;"></section>
-  <p class="note">Sample data only. Ingredient and food lookups arrive in a later version.</p>
+  <div class="layout">
+    <div class="panel">
+      <details class="card" id="key-box">
+        <summary>USDA API key</summary>
+        <form id="key-form" class="stack">
+          <label class="field">Key (saved in this browser only)
+            <input id="key-input" type="password" autocomplete="off" spellcheck="false">
+          </label>
+          <div class="row-inline">
+            <button type="submit" class="primary">Save key</button>
+            <button type="button" id="key-clear">Clear</button>
+          </div>
+          <p class="status" id="key-status" aria-live="polite"></p>
+        </form>
+      </details>
+
+      <form id="search-form" class="card stack">
+        <label class="field">Food
+          <input id="query-input" type="text" placeholder="cheddar cheese" autocomplete="off" required>
+        </label>
+        <div class="row-inline">
+          <label class="field" style="flex:1">Serving size (grams)
+            <input id="grams-input" type="number" min="1" max="2000" step="1" value="100">
+          </label>
+          <button type="submit" class="primary">Search</button>
+        </div>
+      </form>
+
+      <p class="status" id="search-status" aria-live="polite"></p>
+      <ul class="results" id="results"></ul>
+    </div>
+
+    <div class="label-col">
+      <section id="label-mount" aria-label="Nutrition Facts label" style="width:100%;display:flex;justify-content:center;"></section>
+      <p class="note" id="source-note"></p>
+    </div>
+  </div>
 </main>
 
 <script>
@@ -251,11 +369,17 @@ function renderLabel(label) {
   const root = el('div', 'label');
 
   root.append(el('h2', null, 'Nutrition Facts'));
-  root.append(el('div', 'servings', label.servingsPerContainer + ' servings per container'));
+  /* servingsPerContainer is optional: a single food has no container count */
+  if (label.servingsPerContainer) {
+    root.append(el('div', 'servings', label.servingsPerContainer + ' servings per container'));
+  }
 
+  /* An empty servingSize means there is no household measure, so show grams only */
+  const sizeText = label.servingSize
+    ? label.servingSize + ' (' + label.servingGrams + 'g)'
+    : label.servingGrams + 'g';
   const size = el('div', 'row first serving-size');
-  size.append(el('span', null, 'Serving size'),
-              el('span', null, label.servingSize + ' (' + label.servingGrams + 'g)'));
+  size.append(el('span', null, 'Serving size'), el('span', null, sizeText));
   root.append(size);
 
   root.append(el('div', 'bar-thick'));
@@ -284,10 +408,242 @@ function renderLabel(label) {
   return root;
 }
 
+/* ---------- USDA lookup (no DOM) ---------- */
+
+const USDA_SEARCH_URL = 'https://api.nal.usda.gov/fdc/v1/foods/search';
+const KEY_STORAGE_NAME = 'nlc.usdaKey';
+
+/* Units for each label nutrient, as USDA reports them */
+const NUTRIENT_UNITS = {
+  totalFat: 'g', satFat: 'g', transFat: 'g', cholesterol: 'mg', sodium: 'mg',
+  totalCarbs: 'g', fiber: 'g', totalSugars: 'g', addedSugars: 'g', protein: 'g',
+  vitaminD: 'mcg', calcium: 'mg', iron: 'mg', potassium: 'mg'
+};
+
+/* USDA nutrient numbers for each label field, in order of preference.
+   Energy has fallbacks because Foundation foods often use the Atwater numbers. */
+const NUTRIENT_SOURCES = {
+  calories:    ['208', '957', '958'],
+  totalFat:    ['204', '298'],
+  satFat:      ['606'],
+  transFat:    ['605'],
+  cholesterol: ['601'],
+  sodium:      ['307'],
+  totalCarbs:  ['205'],
+  fiber:       ['291'],
+  totalSugars: ['269', '269.3'],
+  addedSugars: ['539'],
+  protein:     ['203'],
+  vitaminD:    ['328'],
+  calcium:     ['301'],
+  iron:        ['303'],
+  potassium:   ['306']
+};
+
+/* Reads the saved API key from localStorage; empty string if none or blocked */
+function loadSavedKey() {
+  try { return localStorage.getItem(KEY_STORAGE_NAME) || ''; } catch (e) { return ''; }
+}
+
+/* Saves (or clears, when empty) the API key; returns false if storage is blocked */
+function saveKey(key) {
+  try {
+    if (key) localStorage.setItem(KEY_STORAGE_NAME, key);
+    else localStorage.removeItem(KEY_STORAGE_NAME);
+    return true;
+  } catch (e) { return false; }
+}
+
+/* Pulls the label nutrients out of a USDA foodNutrients list (values are per 100 g).
+   Nutrients USDA does not report are set to 0. */
+function extractPer100g(foodNutrients) {
+  const byNumber = {};
+  foodNutrients.forEach(n => { byNumber[String(n.nutrientNumber)] = n.value; });
+  const result = {};
+  Object.keys(NUTRIENT_SOURCES).forEach(key => {
+    const found = NUTRIENT_SOURCES[key].find(num => typeof byNumber[num] === 'number');
+    result[key] = found ? byNumber[found] : 0;
+  });
+  return result;
+}
+
+/* Searches USDA generic foods and returns a simple list of matches */
+async function searchFoods(query, apiKey) {
+  const params = new URLSearchParams({
+    api_key: apiKey,
+    query: query,
+    dataType: 'Foundation,SR Legacy',
+    pageSize: '15'
+  });
+  const res = await fetch(USDA_SEARCH_URL + '?' + params.toString());
+  if (!res.ok) {
+    const err = new Error('HTTP ' + res.status);
+    err.status = res.status;
+    throw err;
+  }
+  const data = await res.json();
+  return (data.foods || []).map(f => ({
+    fdcId: f.fdcId,
+    description: f.description,
+    dataType: f.dataType,
+    per100g: extractPer100g(f.foodNutrients || [])
+  }));
+}
+
+/* Scales a food's per-100g nutrients to the chosen grams and returns label data */
+function buildLabelFromFood(food, grams) {
+  const factor = grams / 100;
+  const nutrients = {};
+  Object.keys(NUTRIENT_UNITS).forEach(key => {
+    nutrients[key] = { amount: food.per100g[key] * factor, unit: NUTRIENT_UNITS[key] };
+  });
+  return {
+    servingsPerContainer: null,
+    servingSize: '',
+    servingGrams: grams,
+    calories: Math.round(food.per100g.calories * factor),
+    nutrients: nutrients
+  };
+}
+
+/* Turns a failed lookup into a short message for the person */
+function describeError(err) {
+  if (err.status === 400 || err.status === 403) return 'USDA rejected the API key. Check it in the key box.';
+  if (err.status === 429) return 'USDA rate limit reached. Wait a bit and try again.';
+  if (err.status) return 'USDA returned an error (' + err.status + ').';
+  return 'Could not reach USDA. Check your connection.';
+}
+
+/* ---------- Page state ---------- */
+
+const state = {
+  apiKey: loadSavedKey(),
+  results: [],
+  selected: null,
+  grams: 100,
+  label: SAMPLE_LABEL,
+  sourceText: 'Sample data. Search for a food to replace it.'
+};
+
+/* Rebuilds the label from the selected food and current grams */
+function applySelection() {
+  if (!state.selected) return;
+  state.label = buildLabelFromFood(state.selected, state.grams);
+  state.sourceText = 'Source: USDA FoodData Central (' + state.selected.dataType + '): ' + state.selected.description;
+}
+
+/* ---------- Page wiring (DOM) ---------- */
+
+const ui = {
+  keyBox: document.getElementById('key-box'),
+  keyForm: document.getElementById('key-form'),
+  keyInput: document.getElementById('key-input'),
+  keyClear: document.getElementById('key-clear'),
+  keyStatus: document.getElementById('key-status'),
+  searchForm: document.getElementById('search-form'),
+  queryInput: document.getElementById('query-input'),
+  gramsInput: document.getElementById('grams-input'),
+  searchStatus: document.getElementById('search-status'),
+  results: document.getElementById('results'),
+  labelMount: document.getElementById('label-mount'),
+  sourceNote: document.getElementById('source-note')
+};
+
+/* Shows a message in a status line, styled as an error when asked */
+function setStatus(node, text, isError) {
+  node.textContent = text;
+  node.className = 'status' + (isError ? ' error' : '');
+}
+
+/* Redraws the label and its source note from state */
+function drawLabel() {
+  ui.labelMount.replaceChildren(renderLabel(state.label));
+  ui.sourceNote.textContent = state.sourceText;
+}
+
+/* Redraws the list of search matches, marking the selected one */
+function drawResults() {
+  ui.results.replaceChildren(...state.results.map(food => {
+    const item = el('li');
+    const btn = el('button');
+    btn.type = 'button';
+    btn.append(el('span', null, food.description), el('span', 'meta', food.dataType));
+    if (state.selected && state.selected.fdcId === food.fdcId) btn.setAttribute('aria-current', 'true');
+    btn.addEventListener('click', () => {
+      state.selected = food;
+      applySelection();
+      drawResults();
+      drawLabel();
+    });
+    item.append(btn);
+    return item;
+  }));
+}
+
+/* Saves or clears the key when the key form is submitted */
+ui.keyForm.addEventListener('submit', event => {
+  event.preventDefault();
+  const key = ui.keyInput.value.trim();
+  if (!key) { setStatus(ui.keyStatus, 'Paste a key first.', true); return; }
+  state.apiKey = key;
+  const ok = saveKey(key);
+  ui.keyInput.value = '';
+  setStatus(ui.keyStatus, ok ? 'Key saved in this browser.' : 'Key kept for this tab only; browser storage is blocked.', !ok);
+  ui.keyBox.open = false;
+});
+
+/* Removes the saved key */
+ui.keyClear.addEventListener('click', () => {
+  state.apiKey = '';
+  saveKey('');
+  ui.keyInput.value = '';
+  setStatus(ui.keyStatus, 'Key cleared.', false);
+});
+
+/* Runs a USDA search when the search form is submitted */
+ui.searchForm.addEventListener('submit', async event => {
+  event.preventDefault();
+  const query = ui.queryInput.value.trim();
+  if (!query) return;
+  if (!state.apiKey) {
+    ui.keyBox.open = true;
+    setStatus(ui.searchStatus, 'Add your USDA API key first.', true);
+    return;
+  }
+  setStatus(ui.searchStatus, 'Searching...', false);
+  try {
+    state.results = await searchFoods(query, state.apiKey);
+  } catch (err) {
+    setStatus(ui.searchStatus, describeError(err), true);
+    return;
+  }
+  if (state.results.length === 0) {
+    state.selected = null;
+    drawResults();
+    setStatus(ui.searchStatus, 'No matches. Try a simpler name.', false);
+    return;
+  }
+  state.selected = state.results[0];
+  applySelection();
+  drawResults();
+  drawLabel();
+  setStatus(ui.searchStatus, 'Showing the best match. Pick another below if it is wrong.', false);
+});
+
+/* Rescales the label when the serving size changes */
+ui.gramsInput.addEventListener('input', () => {
+  const grams = Number(ui.gramsInput.value);
+  if (!(grams >= 1 && grams <= 2000)) return;
+  state.grams = grams;
+  applySelection();
+  drawLabel();
+});
+
 /* ---------- Start ---------- */
 
-/* Draws the sample label into the page */
-document.getElementById('label-mount').append(renderLabel(SAMPLE_LABEL));
+/* Open the key box when no key is saved, then draw the first label */
+ui.keyBox.open = !state.apiKey;
+drawLabel();
 </script>
 </body>
 </html>
