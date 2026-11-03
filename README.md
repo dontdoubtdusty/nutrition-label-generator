@@ -59,6 +59,10 @@ GitHub Pages, served straight from `main`.
   baking powder`). State words such as hot, melted, sifted, packed and heaping are dropped from the
   USDA search text (`1 cup hot water` searches for "water"); your line is shown as typed.
 
+- v0.09: Remove an ingredient. Each recipe review card has an X button that drops the ingredient from
+  the label and also deletes its line from the ingredients box, so pressing Calculate again does not
+  bring it back. Works on lines that could not be read, too.
+
 ## Not for regulatory use
 This is a hobby tool. USDA averages and a simplified rounding table are not a substitute
 for lab analysis or a compliant label. Some rounding rules were taken from a secondary
